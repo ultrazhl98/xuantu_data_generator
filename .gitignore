@@ -1,0 +1,4 @@
+output/
+source_photos/
+__pycache__/
+*.pyc
