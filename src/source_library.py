@@ -48,7 +48,7 @@ class SourceLibrary:
         root_dir: 图片路径的根目录（默认为 metadata.json 所在目录的父目录）
         """
         meta_path = Path(metadata_path)
-        self.root_dir = Path(root_dir) if root_dir else meta_path.parent.parent
+        self.root_dir = Path(root_dir) if root_dir else meta_path.parent
 
         with open(meta_path, encoding="utf-8") as f:
             raw = json.load(f)

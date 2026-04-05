@@ -39,7 +39,9 @@ from src.app_config import APP_PRESETS
               help="视频格比例：0.0=纯图模式，0~1 随机混合视频")
 @click.option("--debug", is_flag=True,
               help="生成后在图上绘制 bbox 和 click_target 红点（用于调试）")
-def main(count, apps, ensure_labels, metadata, output, n_sequential, n_content, seed, video_ratio, debug):
+@click.option("--visualize", is_flag=True,
+              help="为每张图额外保存一张带点击位置可视化标注的图片到 output/visualize/")
+def main(count, apps, ensure_labels, metadata, output, n_sequential, n_content, seed, video_ratio, debug, visualize):
     # 解析 apps
     if apps == "all":
         app_list = list(APP_PRESETS.keys())
@@ -64,6 +66,9 @@ def main(count, apps, ensure_labels, metadata, output, n_sequential, n_content, 
 
     if debug:
         _draw_debug_overlay(output, samples)
+
+    if visualize:
+        _draw_visualize(output, samples)
 
 
 def _draw_debug_overlay(output_dir: str, samples):
@@ -102,6 +107,52 @@ def _draw_debug_overlay(output_dir: str, samples):
         img.save(debug_dir / fname, quality=85)
 
     print(f"调试图已保存至：{debug_dir}")
+
+
+def _draw_visualize(output_dir: str, samples):
+    """为每张图生成带点击位置可视化标注的图片，保存到 output/visualize/"""
+    from PIL import Image, ImageDraw, ImageFont
+    from collections import defaultdict
+
+    out = Path(output_dir)
+    vis_dir = out / "visualize"
+    vis_dir.mkdir(exist_ok=True)
+
+    # 按图片分组
+    by_image: dict[str, list] = defaultdict(list)
+    for s in samples:
+        by_image[s.image_path].append(s)
+
+    for img_rel, img_samples in by_image.items():
+        img_abs = Path(output_dir).parent / img_rel if not Path(img_rel).is_absolute() else Path(img_rel)
+        if not img_abs.exists():
+            img_abs = Path(img_rel)
+        if not img_abs.exists():
+            continue
+
+        img = Image.open(img_abs).convert("RGB")
+        draw = ImageDraw.Draw(img, "RGBA")
+
+        for s in img_samples:
+            # 绘制点击区域半透明框
+            for box in s.click_boxes:
+                x1, y1, x2, y2 = box
+                draw.rectangle([x1, y1, x2, y2], outline=(0, 200, 0, 180), width=3)
+                draw.rectangle([x1, y1, x2, y2], fill=(0, 200, 0, 40))
+
+            # 绘制点击目标红点
+            for ct in s.click_targets:
+                cx, cy = ct
+                r = 14
+                draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(255, 0, 0, 200))
+                # 白色内圈
+                r2 = 5
+                draw.ellipse([cx - r2, cy - r2, cx + r2, cy + r2], fill=(255, 255, 255, 230))
+
+        fname = Path(img_rel).stem + "_vis.jpg"
+        img.save(vis_dir / fname, quality=90)
+
+    print(f"可视化图已保存至：{vis_dir}（共 {len(by_image)} 张）")
 
 
 if __name__ == "__main__":
