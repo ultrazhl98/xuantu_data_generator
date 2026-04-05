@@ -169,13 +169,16 @@ def _draw_camera_slot(draw: ImageDraw.Draw, x1: int, y1: int, x2: int, y2: int,
     draw.rectangle([cx - 12, cy - 35, cx + 12, cy - 28], fill=(150, 150, 150))
 
 
-def _draw_selection_circle(draw: ImageDraw.Draw, x2: int, y2: int, config: AppConfig,
-                            selected: bool = False):
-    """在图片右下角绘制选择圆圈，返回 (cx, cy, box)"""
+def _draw_selection_circle(draw: ImageDraw.Draw, x2: int, y1: int, y2: int,
+                            config: AppConfig, selected: bool = False):
+    """在图片右侧绘制选择圆圈，返回 (cx, cy, box)"""
     r = config.selection_circle_radius
     m = config.selection_circle_margin
     cx = x2 - m - r
-    cy = y2 - m - r
+    if config.selection_circle_position == "top-right":
+        cy = y1 + m + r
+    else:
+        cy = y2 - m - r
     # 半透明白色背景（用 outline 模拟）
     draw.ellipse([cx - r, cy - r, cx + r, cy + r],
                  outline=(255, 255, 255), width=2,
@@ -300,7 +303,7 @@ def render_album(
 
         # 选择圆圈
         if config.has_selection_circle:
-            cx, cy, circle_box = _draw_selection_circle(draw_overlay, x2, y2, config)
+            cx, cy, circle_box = _draw_selection_circle(draw_overlay, x2, y1, y2, config)
             click_target = (cx, cy)
             click_box = circle_box
             target_type = "selection_circle"

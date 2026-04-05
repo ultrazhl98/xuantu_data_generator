@@ -16,7 +16,7 @@ class AppConfig:
     has_selection_circle: bool = True
     selection_circle_radius: int = 21   # px
     selection_circle_margin: int = 10   # 距 cell 角落的偏移
-    selection_circle_position: str = "top-right"  # "top-right" | "bottom-right"
+    selection_circle_position: str = "bottom-right"  # "top-right" | "bottom-right"
 
     # 外观（全绘制模式使用）
     theme: str = "light"            # "light" | "dark"
