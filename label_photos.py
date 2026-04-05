@@ -28,6 +28,8 @@ import json
 import os
 import random
 import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -37,15 +39,17 @@ import click
 SUPPORTED_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 
 LABEL_PROMPT = (
-    "请分析这张图片，返回 JSON（只返回 JSON，不要其他文字）：\n"
-    "{\n"
-    '  "labels": ["英文标签1", "英文标签2", ...],  // 3~6个简洁英文标签\n'
-    '  "description": "一句话中文描述"              // 15字以内的中文\n'
-    "}\n"
-    "标签必须从以下列表中选取：cat, dog, car, landscape, food, person, flower, "
-    "building, screenshot, selfie, night, beach, mountain, city, "
-    "animal, sky, sunset, indoor, outdoor\n"
-    "要求：labels 至少3个，description 必须用中文。"
+    "你是一个图片标注助手。请分析这张图片，为它打上中文标签，用于手机相册中的图片搜索和分类。\n"
+    "\n"
+    "要求：\n"
+    "1. 输出 3~6 个中文标签，描述图片中的主要内容（如主体、场景、环境等）\n"
+    "2. 标签要具体且准确，例如用\"金毛犬\"而非\"哺乳动物\"，用\"卧室\"而非\"房间\"\n"
+    "3. 如果图片中有动物，请同时标注具体种类（如\"猫\"、\"狗\"）和上位词\"动物\"\n"
+    "4. 如果图片中有人，请标注\"人物\"以及相关活动（如\"自拍\"、\"聚餐\"）\n"
+    "5. 输出一句 15 字以内的中文描述\n"
+    "\n"
+    "只返回 JSON，不要其他文字：\n"
+    '{"labels": ["标签1", "标签2", ...], "description": "一句话描述"}'
 )
 
 
@@ -78,13 +82,6 @@ def _parse_json_response(text: str) -> dict:
     return json.loads(text)
 
 
-VALID_LABELS = {
-    "cat", "dog", "car", "landscape", "food", "person", "flower",
-    "building", "screenshot", "selfie", "night", "beach", "mountain",
-    "city", "animal", "sky", "sunset", "indoor", "outdoor",
-}
-
-
 def label_single_ollama(model: str, image_path: Path) -> dict:
     """用 Ollama 本地模型对单张图片打标签"""
     import ollama
@@ -102,14 +99,11 @@ def label_single_ollama(model: str, image_path: Path) -> dict:
     text = response["message"]["content"]
     result = _parse_json_response(text)
 
-    # 过滤：只保留有效标签
-    raw_labels = result.get("labels", [])
-    filtered = [l for l in raw_labels if l.lower() in VALID_LABELS]
-    # 如果全被过滤掉了，用文件夹名兜底
-    if not filtered:
-        folder = image_path.parent.name
-        filtered = [folder] if folder in VALID_LABELS else raw_labels[:3]
-    result["labels"] = filtered
+    # 确保 labels 非空
+    labels = result.get("labels", [])
+    if not labels:
+        labels = ["未知"]
+    result["labels"] = labels
     return result
 
 
@@ -132,7 +126,9 @@ def random_timestamp(rng: random.Random) -> str:
               help="只扫描图片，不调用模型（用于测试目录结构）")
 @click.option("--model", default="gemma3:4b", show_default=True,
               help="Ollama 模型名称，需支持视觉。例：gemma3:4b, gemma3:12b, llava:7b")
-def main(source, output, append, dry_run, model):
+@click.option("--workers", default=4, show_default=True,
+              help="并发线程数（根据 GPU 显存和 Ollama 配置调整）")
+def main(source, output, append, dry_run, model, workers):
     source_dir = Path(source)
     output_path = Path(output)
 
@@ -176,36 +172,63 @@ def main(source, output, append, dry_run, model):
         sys.exit(1)
 
     click.echo(f"使用模型：{model}（确保已运行 ollama serve 并执行 ollama pull {model}）")
+    click.echo(f"并发线程数：{workers}")
 
     rng = random.Random(42)
     results: list[dict] = list(existing)
     errors = 0
 
-    with click.progressbar(image_paths, label="标注图片") as bar:
-        for img_path in bar:
-            # 生成 id（相对于 source 父目录的路径，去掉扩展名，/ 换 _）
-            rel_path = img_path.relative_to(source_dir.parent)
-            photo_id = str(rel_path.with_suffix("")).replace("/", "_").replace("\\", "_")
+    # 过滤掉已有 id 的图片，并预生成 id 和时间戳
+    tasks = []
+    for img_path in image_paths:
+        rel_path = img_path.relative_to(source_dir.parent)
+        photo_id = str(rel_path.with_suffix("")).replace("/", "_").replace("\\", "_")
+        if photo_id in existing_ids:
+            continue
+        tasks.append({
+            "img_path": img_path,
+            "rel_path": rel_path,
+            "photo_id": photo_id,
+            "timestamp": random_timestamp(rng),
+        })
 
-            if photo_id in existing_ids:
-                continue
+    if not tasks:
+        click.echo("没有需要标注的新图片")
+    else:
+        click.echo(f"需要标注 {len(tasks)} 张图片")
+        completed = 0
+        lock = threading.Lock()
 
+        def process_one(task):
+            nonlocal errors, completed
             try:
-                info = label_single_ollama(model, img_path)
+                info = label_single_ollama(model, task["img_path"])
             except Exception as e:
-                click.echo(f"\n警告：{img_path.name} 标注失败：{e}", err=True)
-                # 降级：用文件夹名作为 label
-                folder = img_path.parent.name
-                info = {"labels": [folder], "description": f"一张{folder}图片"}
-                errors += 1
+                click.echo(f"\n警告：{task['img_path'].name} 标注失败：{e}", err=True)
+                info = {"labels": ["未知"], "description": "无法识别"}
+                with lock:
+                    errors += 1
 
-            results.append({
-                "id": photo_id,
-                "path": str(rel_path),
+            result = {
+                "id": task["photo_id"],
+                "path": str(task["rel_path"]),
                 "labels": info.get("labels", []),
                 "description": info.get("description", ""),
-                "timestamp": random_timestamp(rng),
-            })
+                "timestamp": task["timestamp"],
+            }
+
+            with lock:
+                completed += 1
+                click.echo(f"\r标注进度：{completed}/{len(tasks)}", nl=False)
+
+            return result
+
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {executor.submit(process_one, t): t for t in tasks}
+            for future in as_completed(futures):
+                results.append(future.result())
+
+        click.echo()  # 换行
 
     # 写入
     output_path.parent.mkdir(parents=True, exist_ok=True)
