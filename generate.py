@@ -39,11 +39,13 @@ from src.app_config import APP_PRESETS
               help="视频格比例：0.0=纯图模式，0~1 随机混合视频")
 @click.option("--model", default="gemma4:e4b", show_default=True,
               help="Ollama 模型名称，用于生成内容类指令。需支持文本对话")
+@click.option("--content-workers", default=4, show_default=True,
+              help="内容指令并发线程数（根据 Ollama 服务能力调整）")
 @click.option("--debug", is_flag=True,
               help="生成后在图上绘制 bbox 和 click_target 红点（用于调试）")
 @click.option("--visualize", is_flag=True,
               help="为每张图额外保存一张带点击位置可视化标注的图片到 output/visualize/")
-def main(count, apps, ensure_labels, metadata, output, n_sequential, n_content, seed, video_ratio, model, debug, visualize):
+def main(count, apps, ensure_labels, metadata, output, n_sequential, n_content, seed, video_ratio, model, content_workers, debug, visualize):
     # 解析 apps
     if apps == "all":
         app_list = list(APP_PRESETS.keys())
@@ -65,6 +67,7 @@ def main(count, apps, ensure_labels, metadata, output, n_sequential, n_content, 
         show_progress=True,
         video_ratio=video_ratio,
         model=model,
+        max_content_workers=content_workers,
     )
 
     if debug:

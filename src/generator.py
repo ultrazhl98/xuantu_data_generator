@@ -1,21 +1,29 @@
 """
 generator.py — 批量生成主流程
 
-调用链：SourceLibrary → renderer.render_album → instruction_generator.generate_samples
+调用链：SourceLibrary → renderer.render_album → instruction generators
 输出：output/images/*.jpg + output/training_samples.jsonl
+
+两阶段流水线：
+  Phase A（单线程）：渲染图片 + 生成顺序指令
+  Phase B（并发）：  批量生成内容指令（ollama 模型调用）
 """
 
 from __future__ import annotations
 
 import json
 import random
+import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Optional
 
 from .app_config import AppConfig, APP_PRESETS
 from .source_library import SourceLibrary
 from .playwright_renderer import render_album
-from .instruction_generator import generate_samples, TrainingSample
+from .sequential_instruction import generate_sequential_samples
+from .content_instruction import generate_content_samples_via_model
+from .instruction_types import TrainingSample
 
 
 def generate(
@@ -32,6 +40,7 @@ def generate(
     root_dir: Optional[str] = None,
     video_ratio: float = 0.0,
     model: str = "gemma4:e4b",
+    max_content_workers: int = 4,
 ) -> list[TrainingSample]:
     """
     批量生成训练数据。
@@ -46,6 +55,7 @@ def generate(
         n_content:       每张合成图生成的内容类指令数
         photos_per_screen: 每屏显示图片数（None = 用 config.max_photos）
         seed:            随机种子（可复现）
+        max_content_workers: 内容指令并发线程数
     """
     rng = random.Random(seed)
     library = SourceLibrary(metadata_path)
@@ -68,11 +78,14 @@ def generate(
     if show_progress:
         try:
             from tqdm import tqdm
-            iterator = tqdm(range(count), desc="生成合成图")
+            iterator = tqdm(range(count), desc="渲染图片 + 顺序指令")
         except ImportError:
             iterator = range(count)
     else:
         iterator = range(count)
+
+    # ── Phase A：渲染 + 顺序指令（单线程） ──────────────────────
+    content_tasks: list[tuple] = []  # (img_rel_path, image_slots, app_name, n_content, model)
 
     for i in iterator:
         config = configs[i % len(configs)]
@@ -109,18 +122,49 @@ def generate(
         # 过滤出纯图片格用于指令生成（跳过视频格）
         image_slots = [s for s in slots if not s.is_video]
 
-        # 生成指令
+        if not image_slots:
+            continue
+
+        # 生成顺序指令（纯计算，瞬时完成）
         img_rel_path = str(Path("output/images") / img_filename)
-        samples = generate_samples(
-            image_path=img_rel_path,
+        seq_samples = generate_sequential_samples(
             slots=image_slots,
-            config=config,
-            n_sequential=n_sequential,
-            n_content=n_content,
-            model=model,
+            image_path=img_rel_path,
+            app=config.name,
+            n=n_sequential,
             rng=rng,
         )
-        all_samples.extend(samples)
+        all_samples.extend(seq_samples)
+
+        # 收集内容指令任务参数
+        if n_content > 0:
+            content_tasks.append((img_rel_path, image_slots, config.name, n_content, model))
+
+    # ── Phase B：并发生成内容指令 ────────────────────────────────
+    if content_tasks:
+        workers = min(max_content_workers, len(content_tasks))
+
+        if show_progress:
+            print(f"\n开始并发生成内容指令（{len(content_tasks)} 张图，{workers} 线程）...")
+
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = [
+                executor.submit(
+                    generate_content_samples_via_model,
+                    slots=task[1],
+                    image_path=task[0],
+                    app=task[2],
+                    n=task[3],
+                    model=task[4],
+                )
+                for task in content_tasks
+            ]
+            # 按提交顺序收集结果，保证 JSONL 输出可复现
+            for future in futures:
+                try:
+                    all_samples.extend(future.result())
+                except Exception as e:
+                    print(f"警告：内容指令生成失败：{e}", file=sys.stderr)
 
     # 写 JSONL
     with open(samples_path, "w", encoding="utf-8") as f:
