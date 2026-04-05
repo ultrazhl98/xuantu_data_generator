@@ -1,13 +1,26 @@
 #!/usr/bin/env python3
 """
-label_photos.py — 一次性脚本：调用 Claude API 对源图自动打标签
+label_photos.py — 一次性脚本：用本地 Gemma 3 模型对源图自动打标签
 
-运行前请确保设置环境变量：ANTHROPIC_API_KEY
+依赖 Ollama（本地推理引擎）：
+    # 1. 安装 Ollama
+    brew install ollama          # macOS
+    # 或从 https://ollama.com 下载安装包
+
+    # 2. 启动 Ollama 服务
+    ollama serve                 # 后台运行，或用系统服务
+
+    # 3. 拉取 Gemma 3 多模态模型（约 3 GB）
+    ollama pull gemma3:4b
+
+    # 4. 安装 Python 客户端
+    pip install ollama
 
 用法：
     python label_photos.py
     python label_photos.py --source source_photos/images --output source_photos/metadata.json
-    python label_photos.py --append   # 跳过已有 id，只处理新图片
+    python label_photos.py --append          # 跳过已有 id，只处理新图片
+    python label_photos.py --model gemma3:4b # 指定模型（默认 gemma3:4b）
 """
 
 import base64
@@ -23,56 +36,81 @@ import click
 
 SUPPORTED_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 
+LABEL_PROMPT = (
+    "请分析这张图片，返回 JSON（只返回 JSON，不要其他文字）：\n"
+    "{\n"
+    '  "labels": ["英文标签1", "英文标签2", ...],  // 3~6个简洁英文标签\n'
+    '  "description": "一句话中文描述"              // 15字以内的中文\n'
+    "}\n"
+    "标签必须从以下列表中选取：cat, dog, car, landscape, food, person, flower, "
+    "building, screenshot, selfie, night, beach, mountain, city, "
+    "animal, sky, sunset, indoor, outdoor\n"
+    "要求：labels 至少3个，description 必须用中文。"
+)
 
-def encode_image(path: Path) -> tuple[str, str]:
-    """返回 (base64_data, media_type)"""
-    ext = path.suffix.lower()
-    media_type = {
-        ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-        ".png": "image/png", ".webp": "image/webp",
-    }.get(ext, "image/jpeg")
+
+def encode_image_b64(path: Path) -> str:
+    """返回 base64 编码的图片数据"""
     with open(path, "rb") as f:
-        return base64.standard_b64encode(f.read()).decode(), media_type
+        return base64.standard_b64encode(f.read()).decode()
 
 
-def label_single(client, image_path: Path) -> dict:
-    """调用 Claude API 对单张图片打标签"""
-    b64, media_type = encode_image(image_path)
+def _parse_json_response(text: str) -> dict:
+    """从模型返回文本中提取 JSON"""
+    text = text.strip()
+    # 去除 ```json ... ``` 包裹
+    if "```" in text:
+        parts = text.split("```")
+        for part in parts:
+            part = part.strip()
+            if part.startswith("json"):
+                part = part[4:].strip()
+            try:
+                return json.loads(part)
+            except json.JSONDecodeError:
+                continue
+    # 直接解析
+    # 找第一个 { 到最后一个 }
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end != -1:
+        return json.loads(text[start:end + 1])
+    return json.loads(text)
 
-    response = client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=256,
+
+VALID_LABELS = {
+    "cat", "dog", "car", "landscape", "food", "person", "flower",
+    "building", "screenshot", "selfie", "night", "beach", "mountain",
+    "city", "animal", "sky", "sunset", "indoor", "outdoor",
+}
+
+
+def label_single_ollama(model: str, image_path: Path) -> dict:
+    """用 Ollama 本地模型对单张图片打标签"""
+    import ollama
+
+    b64 = encode_image_b64(image_path)
+    response = ollama.chat(
+        model=model,
         messages=[{
             "role": "user",
-            "content": [
-                {
-                    "type": "image",
-                    "source": {"type": "base64", "media_type": media_type, "data": b64},
-                },
-                {
-                    "type": "text",
-                    "text": (
-                        "请分析这张图片，返回 JSON（只返回 JSON，不要其他文字）：\n"
-                        "{\n"
-                        '  "labels": ["英文标签1", "英文标签2"],   // 3~6个简洁英文标签\n'
-                        '  "description": "一句话中文描述"         // 15字以内\n'
-                        "}\n"
-                        "常用标签参考：cat, dog, car, landscape, food, person, flower, "
-                        "building, screenshot, selfie, night, beach, mountain, city, "
-                        "animal, sky, sunset, indoor, outdoor"
-                    ),
-                },
-            ],
+            "content": LABEL_PROMPT,
+            "images": [b64],
         }],
+        options={"temperature": 0.1},
     )
+    text = response["message"]["content"]
+    result = _parse_json_response(text)
 
-    text = response.content[0].text.strip()
-    # 提取 JSON（可能被 ``` 包裹）
-    if "```" in text:
-        text = text.split("```")[1].strip()
-        if text.startswith("json"):
-            text = text[4:].strip()
-    return json.loads(text)
+    # 过滤：只保留有效标签
+    raw_labels = result.get("labels", [])
+    filtered = [l for l in raw_labels if l.lower() in VALID_LABELS]
+    # 如果全被过滤掉了，用文件夹名兜底
+    if not filtered:
+        folder = image_path.parent.name
+        filtered = [folder] if folder in VALID_LABELS else raw_labels[:3]
+    result["labels"] = filtered
+    return result
 
 
 def random_timestamp(rng: random.Random) -> str:
@@ -91,8 +129,10 @@ def random_timestamp(rng: random.Random) -> str:
 @click.option("--append", is_flag=True,
               help="追加模式：跳过已有 id，只处理新图片")
 @click.option("--dry-run", is_flag=True,
-              help="只扫描图片，不调用 API（用于测试目录结构）")
-def main(source, output, append, dry_run):
+              help="只扫描图片，不调用模型（用于测试目录结构）")
+@click.option("--model", default="gemma3:4b", show_default=True,
+              help="Ollama 模型名称，需支持视觉。例：gemma3:4b, gemma3:12b, llava:7b")
+def main(source, output, append, dry_run, model):
     source_dir = Path(source)
     output_path = Path(output)
 
@@ -125,17 +165,17 @@ def main(source, output, append, dry_run):
         for p in image_paths:
             rel = str(p.relative_to(source_dir.parent))
             click.echo(f"  {rel}")
-        click.echo("dry-run 完成，未调用 API")
+        click.echo("dry-run 完成，未调用模型")
         return
 
-    # 初始化 Anthropic client
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        click.echo("错误：请设置环境变量 ANTHROPIC_API_KEY", err=True)
+    # 检查 ollama 是否可用
+    try:
+        import ollama as _ollama_check
+    except ImportError:
+        click.echo("错误：请先安装 ollama Python 包：pip install ollama", err=True)
         sys.exit(1)
 
-    import anthropic
-    client = anthropic.Anthropic(api_key=api_key)
+    click.echo(f"使用模型：{model}（确保已运行 ollama serve 并执行 ollama pull {model}）")
 
     rng = random.Random(42)
     results: list[dict] = list(existing)
@@ -151,7 +191,7 @@ def main(source, output, append, dry_run):
                 continue
 
             try:
-                info = label_single(client, img_path)
+                info = label_single_ollama(model, img_path)
             except Exception as e:
                 click.echo(f"\n警告：{img_path.name} 标注失败：{e}", err=True)
                 # 降级：用文件夹名作为 label

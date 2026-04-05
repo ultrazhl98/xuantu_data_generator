@@ -27,6 +27,7 @@ class TrainingSample:
     instruction: str
     instruction_type: str          # "sequential" | "content"
     click_targets: list[tuple]     # [(cx, cy), ...]
+    click_boxes: list[tuple]       # [(x1, y1, x2, y2), ...] 每个点击目标对应的 box
     selected_grid_indices: list[int]
 
 
@@ -64,6 +65,7 @@ def _make_single_index(slot: SlotInfo, image_path: str, app: str,
         instruction=rng.choice(templates),
         instruction_type="sequential",
         click_targets=[slot.click_target],
+        click_boxes=[slot.click_box],
         selected_grid_indices=[slot.grid_index],
     )
 
@@ -83,6 +85,7 @@ def _make_row_col(slot: SlotInfo, image_path: str, app: str,
         instruction=rng.choice(templates),
         instruction_type="sequential",
         click_targets=[slot.click_target],
+        click_boxes=[slot.click_box],
         selected_grid_indices=[slot.grid_index],
     )
 
@@ -110,6 +113,7 @@ def _make_multi_index(slots_subset: list[SlotInfo], image_path: str, app: str,
         instruction=rng.choice(templates),
         instruction_type="sequential",
         click_targets=[s.click_target for s in slots_subset],
+        click_boxes=[s.click_box for s in slots_subset],
         selected_grid_indices=indices,
     )
 
@@ -135,6 +139,7 @@ def _make_newest_n(slots: list[SlotInfo], n: int, image_path: str, app: str,
         instruction=rng.choice(templates),
         instruction_type="sequential",
         click_targets=[s.click_target for s in chosen],
+        click_boxes=[s.click_box for s in chosen],
         selected_grid_indices=[s.grid_index for s in chosen],
     )
 
@@ -158,6 +163,7 @@ def _make_last_n(slots: list[SlotInfo], n: int, image_path: str, app: str,
         instruction=rng.choice(templates),
         instruction_type="sequential",
         click_targets=[s.click_target for s in chosen],
+        click_boxes=[s.click_box for s in chosen],
         selected_grid_indices=[s.grid_index for s in chosen],
     )
 
@@ -207,6 +213,7 @@ def _make_all_label(label: str, matching_slots: list[SlotInfo],
         instruction=rng.choice(templates),
         instruction_type="content",
         click_targets=[s.click_target for s in matching_slots],
+        click_boxes=[s.click_box for s in matching_slots],
         selected_grid_indices=[s.grid_index for s in matching_slots],
     )
 
@@ -226,6 +233,7 @@ def _make_nth_label(label: str, n: int, nth_slot: SlotInfo,
         instruction=rng.choice(templates),
         instruction_type="content",
         click_targets=[nth_slot.click_target],
+        click_boxes=[nth_slot.click_box],
         selected_grid_indices=[nth_slot.grid_index],
     )
 
@@ -245,6 +253,7 @@ def _make_multi_label(labels: list[str], matching_slots: list[SlotInfo],
         instruction=rng.choice(templates),
         instruction_type="content",
         click_targets=[s.click_target for s in matching_slots],
+        click_boxes=[s.click_box for s in matching_slots],
         selected_grid_indices=[s.grid_index for s in matching_slots],
     )
 

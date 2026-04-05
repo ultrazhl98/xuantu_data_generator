@@ -20,8 +20,8 @@ class AppConfig:
 
     # 外观（全绘制模式使用）
     theme: str = "light"            # "light" | "dark"
-    show_timestamp_overlay: bool = False
     header_style: str = "simple"    # "simple" | "dark" | "with_search" | "with_tabs"
+    video_ratio: float = 0.0        # 0.0 = 纯图模式；0~1 = 随机混合视频的概率
 
     @property
     def grid_start_x(self) -> int:
@@ -98,7 +98,6 @@ WEIBO = AppConfig(
     name="微博",
     grid_start_y=310,
     has_camera_slot=True,
-    show_timestamp_overlay=True,
     header_style="with_search",
     bottom_nav_height=95,
 )
@@ -107,7 +106,6 @@ REDBOOK = AppConfig(
     name="小红书",
     grid_start_y=270,
     has_camera_slot=False,
-    show_timestamp_overlay=True,
     header_style="with_tabs",
 )
 

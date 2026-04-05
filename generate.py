@@ -35,9 +35,11 @@ from src.app_config import APP_PRESETS
               help="每张图生成的内容类指令数")
 @click.option("--seed", default=None, type=int,
               help="随机种子（用于复现）")
+@click.option("--video-ratio", default=0.3, show_default=True,
+              help="视频格比例：0.0=纯图模式，0~1 随机混合视频")
 @click.option("--debug", is_flag=True,
               help="生成后在图上绘制 bbox 和 click_target 红点（用于调试）")
-def main(count, apps, ensure_labels, metadata, output, n_sequential, n_content, seed, debug):
+def main(count, apps, ensure_labels, metadata, output, n_sequential, n_content, seed, video_ratio, debug):
     # 解析 apps
     if apps == "all":
         app_list = list(APP_PRESETS.keys())
@@ -57,6 +59,7 @@ def main(count, apps, ensure_labels, metadata, output, n_sequential, n_content, 
         n_content=n_content,
         seed=seed,
         show_progress=True,
+        video_ratio=video_ratio,
     )
 
     if debug:

@@ -397,14 +397,14 @@ html, body {{
     box-shadow: 0 1px 3px rgba(0,0,0,0.25);
 }}
 
-/* 时间戳 */
-.timestamp {{
+/* 视频时长标签 */
+.video-duration {{
     position: absolute;
     bottom: 6px;
     left: 6px;
     padding: 2px 7px;
     border-radius: 3px;
-    background: rgba(0,0,0,0.42);
+    background: rgba(0,0,0,0.52);
     color: #ffffff;
     font-size: 20px;
     line-height: 1.45;
@@ -591,7 +591,12 @@ def _bottom_bar_html(config: AppConfig) -> str:
     )
 
 
-def _grid_html(config: AppConfig, photos: list[PhotoEntry]) -> str:
+def _grid_html(
+    config: AppConfig,
+    photos: list[PhotoEntry],
+    is_video_list: list[bool],
+    durations: list,
+) -> str:
     items: list[str] = []
     visual_slot = 0
 
@@ -603,32 +608,45 @@ def _grid_html(config: AppConfig, photos: list[PhotoEntry]) -> str:
         )
         visual_slot = 1
 
-    # 照片格
+    # 照片/视频格
     grid_index = 0
-    for photo in photos:
+    for photo_idx, photo in enumerate(photos):
         row = visual_slot // config.cols
         y2_abs = config.grid_start_y + (row + 1) * (config.cell_size + config.gap)
         if y2_abs > config.grid_end_y:
             break
 
-        grid_index += 1
+        is_video = is_video_list[photo_idx] if photo_idx < len(is_video_list) else False
+        duration = durations[photo_idx] if photo_idx < len(durations) else None
+
+        # grid_index 只对图片格计数
+        if not is_video:
+            grid_index += 1
+
         src = Path(photo.source_path).resolve().as_uri()
 
-        ts_html = ""
-        if config.show_timestamp_overlay and photo.timestamp:
-            ts = photo.timestamp
-            ts_html = f'<div class="timestamp">{ts.month}月{ts.day}日</div>'
+        # 视频格：左下角时长叠加；图片格：无叠加
+        overlay_html = ""
+        if is_video and duration:
+            overlay_html = f'<div class="video-duration">&#9654; {duration}</div>'
 
         circle_html = (
             '<div class="selection-circle"></div>' if config.has_selection_circle else ""
         )
 
+        # 图片格附带 data-grid-index；视频格只有 data-visual-slot
+        grid_index_attr = f' data-grid-index="{grid_index}"' if not is_video else ""
+        is_video_attr = ' data-is-video="true"' if is_video else ""
+        duration_attr = f' data-duration="{duration}"' if is_video and duration else ""
+
         items.append(
             f'<div class="photo-cell"'
-            f' data-grid-index="{grid_index}"'
-            f' data-visual-slot="{visual_slot}">'
+            f'{grid_index_attr}'
+            f' data-visual-slot="{visual_slot}"'
+            f'{is_video_attr}'
+            f'{duration_attr}>'
             f'<img src="{src}" loading="eager" decoding="sync"/>'
-            f"{ts_html}"
+            f"{overlay_html}"
             f"{circle_html}"
             f"</div>"
         )
@@ -641,7 +659,12 @@ def _grid_html(config: AppConfig, photos: list[PhotoEntry]) -> str:
     )
 
 
-def _build_html(config: AppConfig, photos: list[PhotoEntry]) -> str:
+def _build_html(
+    config: AppConfig,
+    photos: list[PhotoEntry],
+    is_video_list: list[bool],
+    durations: list,
+) -> str:
     css = _build_css(config)
     return (
         "<!DOCTYPE html><html><head>"
@@ -650,7 +673,7 @@ def _build_html(config: AppConfig, photos: list[PhotoEntry]) -> str:
         "</head><body>"
         + _status_bar_html()
         + _header_html(config)
-        + _grid_html(config, photos)
+        + _grid_html(config, photos, is_video_list, durations)
         + _bottom_bar_html(config)
         + "</body></html>"
     )
@@ -667,15 +690,21 @@ def render_album(
     config: AppConfig,
     photos: list[PhotoEntry],
     root_dir: str = ".",
+    is_video_list: list = None,
+    durations: list = None,
 ) -> tuple[Image.Image, list]:
     """
     用 HTML/CSS + Playwright 渲染相册截图。
 
     返回：
         img   - PIL Image (RGB)
-        slots - list[SlotInfo]
+        slots - list[SlotInfo]（含图片格和视频格，视频格 grid_index=0）
     """
-    html = _build_html(config, photos)
+    _n = len(photos)
+    _is_video = list(is_video_list) if is_video_list else [False] * _n
+    _durations = list(durations) if durations else [None] * _n
+
+    html = _build_html(config, photos, _is_video, _durations)
 
     tmp = tempfile.NamedTemporaryFile(
         mode="w", suffix=".html", delete=False, encoding="utf-8"
@@ -710,13 +739,16 @@ def render_album(
         img = Image.open(io.BytesIO(png_bytes)).convert("RGB")
 
         slots_data: list[dict] = page.evaluate(
-            """() => Array.from(document.querySelectorAll('[data-grid-index]')).map(cell => {
+            """() => Array.from(document.querySelectorAll('[data-visual-slot]')).map(cell => {
                 const circle = cell.querySelector('.selection-circle');
                 const cR = cell.getBoundingClientRect();
                 const sR = circle ? circle.getBoundingClientRect() : null;
+                const isVideo = cell.dataset.isVideo === 'true';
                 return {
-                    grid_index:  +cell.dataset.gridIndex,
+                    grid_index:  cell.dataset.gridIndex ? +cell.dataset.gridIndex : 0,
                     visual_slot: +cell.dataset.visualSlot,
+                    is_video:    isVideo,
+                    duration:    cell.dataset.duration || null,
                     bbox: [
                         Math.round(cR.left), Math.round(cR.top),
                         Math.round(cR.right), Math.round(cR.bottom)
@@ -729,6 +761,15 @@ def render_album(
                         : [
                             Math.round(cR.left + cR.width  / 2),
                             Math.round(cR.top  + cR.height / 2)
+                          ],
+                    click_box: sR
+                        ? [
+                            Math.round(sR.left), Math.round(sR.top),
+                            Math.round(sR.right), Math.round(sR.bottom)
+                          ]
+                        : [
+                            Math.round(cR.left), Math.round(cR.top),
+                            Math.round(cR.right), Math.round(cR.bottom)
                           ],
                     target_type: sR ? 'selection_circle' : 'photo_center',
                 };
@@ -751,8 +792,11 @@ def render_album(
             col=vs % config.cols,
             bbox=tuple(d["bbox"]),
             click_target=tuple(d["click_target"]),
+            click_box=tuple(d["click_box"]),
             target_type=d["target_type"],
             photo=photo,
+            is_video=d["is_video"],
+            duration=d["duration"],
         ))
 
     return img, slots

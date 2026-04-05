@@ -30,6 +30,7 @@ def generate(
     seed: Optional[int] = None,
     show_progress: bool = True,
     root_dir: Optional[str] = None,
+    video_ratio: float = 0.0,
 ) -> list[TrainingSample]:
     """
     批量生成训练数据。
@@ -86,17 +87,32 @@ def generate(
         if not photos:
             continue
 
+        # 决定哪些格子是视频（保证可复现）
+        _ratio = video_ratio if video_ratio > 0 else 0.0
+        if _ratio > 0:
+            is_video_list = [rng.random() < _ratio for _ in range(len(photos))]
+            durations = [
+                f"{rng.randint(0, 5):02d}:{rng.randint(0, 59):02d}" if iv else None
+                for iv in is_video_list
+            ]
+        else:
+            is_video_list = [False] * len(photos)
+            durations = [None] * len(photos)
+
         # 渲染
         img_filename = f"{i:05d}.jpg"
         img_abs_path = str(img_dir / img_filename)
-        img, slots = render_album(config, photos)
+        img, slots = render_album(config, photos, is_video_list=is_video_list, durations=durations)
         img.save(img_abs_path, quality=92)
+
+        # 过滤出纯图片格用于指令生成（跳过视频格）
+        image_slots = [s for s in slots if not s.is_video]
 
         # 生成指令
         img_rel_path = str(Path("output/images") / img_filename)
         samples = generate_samples(
             image_path=img_rel_path,
-            slots=slots,
+            slots=image_slots,
             config=config,
             n_sequential=n_sequential,
             n_content=n_content,
@@ -113,6 +129,7 @@ def generate(
                 "instruction": s.instruction,
                 "instruction_type": s.instruction_type,
                 "click_targets": [list(t) for t in s.click_targets],
+                "click_boxes": [list(b) for b in s.click_boxes],
                 "selected_grid_indices": s.selected_grid_indices,
             }
             f.write(json.dumps(record, ensure_ascii=False) + "\n")

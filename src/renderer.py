@@ -11,10 +11,10 @@ renderer.py — 全合成相册 UI 渲染器
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -26,14 +26,17 @@ from .source_library import PhotoEntry
 
 @dataclass
 class SlotInfo:
-    grid_index: int         # 用户视角第 N 张（1-based，跳过拍照位）
+    grid_index: int         # 用户视角第 N 张（1-based，只计图片，跳过拍照位和视频格）；视频格为 0
     visual_slot: int        # grid 中实际位置（0-based，含拍照位）
     row: int
     col: int
-    bbox: tuple             # (x1, y1, x2, y2) 像素绝对坐标
+    bbox: tuple             # (x1, y1, x2, y2) 像素绝对坐标（网格单元）
     click_target: tuple     # (cx, cy) Agent 应点击的坐标
+    click_box: tuple        # (x1, y1, x2, y2) 点击目标的 box：有圆圈时为圆圈 box，否则为网格 box
     target_type: str        # "selection_circle" | "photo_center"
     photo: PhotoEntry
+    is_video: bool = False
+    duration: Optional[str] = None  # 视频时长，格式 "mm:ss"；图片格为 None
 
 
 # ── 字体辅助 ─────────────────────────────────────────────────────
@@ -168,7 +171,7 @@ def _draw_camera_slot(draw: ImageDraw.Draw, x1: int, y1: int, x2: int, y2: int,
 
 def _draw_selection_circle(draw: ImageDraw.Draw, x2: int, y2: int, config: AppConfig,
                             selected: bool = False):
-    """在图片右下角绘制选择圆圈"""
+    """在图片右下角绘制选择圆圈，返回 (cx, cy, box)"""
     r = config.selection_circle_radius
     m = config.selection_circle_margin
     cx = x2 - m - r
@@ -177,16 +180,13 @@ def _draw_selection_circle(draw: ImageDraw.Draw, x2: int, y2: int, config: AppCo
     draw.ellipse([cx - r, cy - r, cx + r, cy + r],
                  outline=(255, 255, 255), width=2,
                  fill=(255, 255, 255, 180) if selected else None)
-    return cx, cy
+    return cx, cy, (cx - r, cy - r, cx + r, cy + r)
 
 
-def _draw_timestamp_overlay(draw: ImageDraw.Draw, photo: PhotoEntry,
-                              x1: int, y1: int, x2: int, y2: int):
-    """在图片左下角绘制时间文字"""
-    ts = photo.timestamp
-    text = ts.strftime("%-m月%-d日") if ts else ""
-    if not text:
-        return
+def _draw_video_duration(draw: ImageDraw.Draw, duration: str,
+                          x1: int, y1: int, x2: int, y2: int):
+    """在图片左下角绘制视频时长（格式 ▶ mm:ss）"""
+    text = f"▶ {duration}"
     font = _get_font(20)
     tw = font.getlength(text)
     tx = x1 + 6
@@ -202,6 +202,8 @@ def render_album(
     config: AppConfig,
     photos: list[PhotoEntry],
     root_dir: str = ".",
+    is_video_list: Optional[List[bool]] = None,
+    durations: Optional[List[Optional[str]]] = None,
 ) -> tuple[Image.Image, list[SlotInfo]]:
     """
     合成一张相册截图。
@@ -246,10 +248,15 @@ def render_album(
         fill=config.grid_bg_color if config.background_image else config.bg_color
     )
 
+    # 标准化 is_video_list 和 durations
+    _n = len(photos)
+    _is_video = list(is_video_list) if is_video_list else [False] * _n
+    _durations = list(durations) if durations else [None] * _n
+
     # ── 网格布局 ──────────────────────────────────────────────────
     slots: list[SlotInfo] = []
     visual_slot = 0
-    grid_index = 0  # 用户视角的图片计数（1-based）
+    grid_index = 0  # 用户视角的图片计数（1-based，只对图片格计数）
 
     def _slot_coords(slot: int) -> tuple[int, int, int, int]:
         row = slot // config.cols
@@ -264,8 +271,8 @@ def render_album(
         _draw_camera_slot(draw, x1, y1, x2, y2, config)
         visual_slot = 1
 
-    # 图片格
-    for photo in photos:
+    # 图片/视频格
+    for photo_idx, photo in enumerate(photos):
         row = visual_slot // config.cols
         col = visual_slot % config.cols
         x1, y1, x2, y2 = _slot_coords(visual_slot)
@@ -273,6 +280,9 @@ def render_album(
         # 跳过超出屏幕的格子
         if y2 > config.grid_end_y:
             break
+
+        is_video = _is_video[photo_idx] if photo_idx < len(_is_video) else False
+        duration = _durations[photo_idx] if photo_idx < len(_durations) else None
 
         # 粘贴缩略图
         try:
@@ -283,30 +293,38 @@ def render_album(
             # 图片加载失败：用灰色占位
             draw.rectangle([x1, y1, x2, y2], fill=(180, 180, 180))
 
-        # 时间戳覆盖层
-        if config.show_timestamp_overlay:
-            _draw_timestamp_overlay(draw, photo, x1, y1, x2, y2)
+        # 视频时长叠加层（仅视频格）
+        draw_overlay = ImageDraw.Draw(img, "RGBA")
+        if is_video and duration:
+            _draw_video_duration(draw_overlay, duration, x1, y1, x2, y2)
 
-        # 选择圆圈（重新获取 draw，因为 paste 之后需要重绘）
-        draw2 = ImageDraw.Draw(img, "RGBA")
+        # 选择圆圈
         if config.has_selection_circle:
-            cx, cy = _draw_selection_circle(draw2, x2, y2, config)
+            cx, cy, circle_box = _draw_selection_circle(draw_overlay, x2, y2, config)
             click_target = (cx, cy)
+            click_box = circle_box
             target_type = "selection_circle"
         else:
             click_target = ((x1 + x2) // 2, (y1 + y2) // 2)
+            click_box = (x1, y1, x2, y2)
             target_type = "photo_center"
 
-        grid_index += 1
+        # grid_index 只对图片格计数
+        if not is_video:
+            grid_index += 1
+
         slots.append(SlotInfo(
-            grid_index=grid_index,
+            grid_index=grid_index if not is_video else 0,
             visual_slot=visual_slot,
             row=row,
             col=col,
             bbox=(x1, y1, x2, y2),
             click_target=click_target,
+            click_box=click_box,
             target_type=target_type,
             photo=photo,
+            is_video=is_video,
+            duration=duration,
         ))
         visual_slot += 1
 
