@@ -3,13 +3,14 @@ instruction_generator.py — 训练指令生成
 
 支持两大类指令：
 1. 顺序类：基于 grid_index / row / col / timestamp，纯逻辑生成
-2. 内容类：基于 photo.labels，扫描可见 slots 后生成
+2. 内容类：调用 Gemma 模型，根据图片标签生成自然语言指令
 
 每条指令生成一个 TrainingSample。
 """
 
 from __future__ import annotations
 
+import json
 import random
 from dataclasses import dataclass, field
 from typing import Optional
@@ -168,94 +169,157 @@ def _make_last_n(slots: list[SlotInfo], n: int, image_path: str, app: str,
     )
 
 
-# ── 内容类指令 ────────────────────────────────────────────────────
+# ── 内容类指令（模型驱动） ────────────────────────────────────────
 
-# 标签 → 中文名称映射
-_LABEL_ZH: dict[str, list[str]] = {
-    "cat": ["小猫", "猫咪", "猫"],
-    "dog": ["小狗", "狗狗", "狗"],
-    "car": ["汽车", "车", "轿车"],
-    "landscape": ["风景", "景色", "自然风光"],
-    "food": ["食物", "美食", "吃的"],
-    "person": ["人物", "人像"],
-    "flower": ["花", "花朵"],
-    "building": ["建筑", "楼", "房子"],
-    "screenshot": ["截图", "屏幕截图"],
-    "selfie": ["自拍", "自拍照"],
-    "night": ["夜景", "夜晚"],
-    "beach": ["海滩", "沙滩", "海边"],
-    "mountain": ["山", "山景", "山峰"],
-    "city": ["城市", "街景"],
-    "animal": ["动物"],
-    "sky": ["天空", "蓝天"],
-    "sunset": ["日落", "夕阳", "落日"],
-}
+def _build_content_prompt(slots: list[SlotInfo], n: int) -> str:
+    """构建让 Gemma 生成内容指令的 prompt"""
+    lines = ["你在一个手机相册界面中看到以下图片："]
+    for slot in slots:
+        labels_str = "、".join(slot.photo.labels) if slot.photo.labels else "未知"
+        lines.append(f"第{slot.grid_index}张：标签 [{labels_str}]")
 
-def _label_zh(label: str, rng: random.Random) -> str:
-    candidates = _LABEL_ZH.get(label.lower())
-    if candidates:
-        return rng.choice(candidates)
-    return label  # 未知标签直接用英文或原文
+    lines.append(f"\n请生成 {n} 条自然语言指令，每条指令要求用户选择或发送特定的图片。")
+    lines.append("指令要多样化，包括但不限于：")
+    lines.append("- 按内容选择单张（如\"发送那张猫的照片\"）")
+    lines.append("- 按类别选择多张（如\"把所有动物的图片发给我\"）")
+    lines.append("- 按第N个某类内容选择（如\"发送第二张有狗的照片\"）")
+    lines.append("- 按内容组合选择（如\"把有猫和有狗的照片都发过来\"）")
+    lines.append("\n注意：")
+    lines.append("- selected_indices 使用图片编号（上面列出的第几张）")
+    lines.append("- 每条指令的 selected_indices 不能为空")
+    lines.append("- 指令要自然口语化，像真实用户的说法")
+    lines.append("\n只返回 JSON 数组，不要其他文字：")
+    lines.append('[{"instruction": "...", "selected_indices": [1, 4]}, ...]')
+    return "\n".join(lines)
 
-
-def _make_all_label(label: str, matching_slots: list[SlotInfo],
-                     image_path: str, app: str, rng: random.Random) -> TrainingSample:
-    zh = _label_zh(label, rng)
-    templates = [
-        f"发送{zh}的图片",
-        f"选择{zh}照片",
-        f"把所有{zh}的图片发给我",
-        f"发送所有{zh}图片",
+def _build_content_prompt(slots: list[SlotInfo], n: int) -> str:
+    """构建增强型、具备泛化能力的指令生成 prompt"""
+    
+    # 1. 场景化上下文描述
+    lines = [
+        "### 角色设定",
+        "你是一个正在使用智能相册的真实用户。你正对着手机使用语音控制功能，让 AI 助手帮你挑选照片发送给朋友或整理文件夹。",
+        "你说话风格自然、随意，会根据屏幕上的内容差异灵活调整说法。",
+        "\n### 当前屏幕照片元数据（Metadata）",
     ]
-    return TrainingSample(
-        image_path=image_path,
-        app=app,
-        instruction=rng.choice(templates),
-        instruction_type="content",
-        click_targets=[s.click_target for s in matching_slots],
-        click_boxes=[s.click_box for s in matching_slots],
-        selected_grid_indices=[s.grid_index for s in matching_slots],
+
+    # 2. 注入图片信息，并提示模型关注标签重复情况
+    for slot in slots:
+        labels_str = "、".join(slot.photo.labels) if slot.photo.labels else "未知"
+        lines.append(f"图片 {slot.grid_index}：核心标签 [{labels_str}]")
+
+    # 3. 核心生成逻辑与多样性约束
+    lines.extend([
+        f"\n### 任务要求：生成 {n} 条不重复的、地道的口语指令",
+        "1. **消除歧义优先**：如果屏幕上有两张及以上的图片标签相似（例如都有'狗'），你的指令必须包含区分性描述，如：",
+        "   - 方位词：'左边那张狗'、'最后一行那个小猫'",
+        "   - 序数词：'选第二张有天安门的'、'第三张风景照'",
+        "   - 特征词：'那张金毛的图'、'正在跑步的那只狗'",
+        
+        "2. **拒绝机械化句式**：禁止反复使用'发送第X张'或'选择标签为X的图片'。尝试以下真实语气：",
+        "   - 动作多样化：'帮我点一下'、'把...勾选上'、'把...都发过去'、'找找看那张...'、'打包这几张'",
+        "   - 省略与代词：'就要这张'、'还有这个'、'除了猫的那张，其他的都要'",
+        
+        "3. **覆盖多种逻辑**：",
+        "   - 单选：'发一下那张柯基的图'",
+        "   - 类别多选：'把这次去北京拍的照片都选上'（对应标签包含北京的图片），对应的图片不要超过3张，如果不符合可以不生成",
+        "   - 逻辑组合：'把小猫和小狗的图片发到朋友圈'，对应的图片不要超过3张，如果不符合可以不生成",
+        "   - 对应数量限制：一条指令对应的需要选择的图片数量不超过3张",
+
+
+        "\n### 负面约束（Strict Negative Constraints）",
+        "- 严禁在指令中直接出现 'selected_indices' 或 '标签' 等开发术语。",
+        "- 严禁每条指令都以相同的动词开头。",
+        "- 严禁生成无法从给定图片列表中找到对应目标的指令。",
+
+        "\n### 输出格式",
+        "必须严格返回 JSON 数组格式，禁止任何解释性文字：",
+        '[{"instruction": "指令文本", "selected_indices": [编号, 编号]}]'
+    ])
+    
+    return "\n".join(lines)
+
+
+
+def _parse_content_response(text: str) -> list[dict]:
+    """解析模型返回的 JSON 数组"""
+    text = text.strip()
+    # 去除 ```json ... ``` 包裹
+    if "```" in text:
+        parts = text.split("```")
+        for part in parts:
+            part = part.strip()
+            if part.startswith("json"):
+                part = part[4:].strip()
+            try:
+                result = json.loads(part)
+                if isinstance(result, list):
+                    return result
+            except (json.JSONDecodeError, ValueError):
+                continue
+    # 直接解析：找第一个 [ 到最后一个 ]
+    start = text.find("[")
+    end = text.rfind("]")
+    if start != -1 and end != -1:
+        return json.loads(text[start:end + 1])
+    return json.loads(text)
+
+
+def generate_content_samples_via_model(
+    slots: list[SlotInfo],
+    image_path: str,
+    app: str,
+    n: int,
+    model: str = "gemma4:e4b",
+) -> list[TrainingSample]:
+    """调用 Gemma 模型生成内容类指令"""
+    import ollama
+
+    prompt = _build_content_prompt(slots, n)
+    print(f"\n{'='*60}")
+    print(f"[Content Prompt] model={model}")
+    print(f"{'='*60}")
+    print(prompt)
+    response = ollama.chat(
+        model=model,
+        messages=[{"role": "user", "content": prompt}],
+        options={"temperature": 0.7},
     )
+    text = response["message"]["content"]
+    print(f"\n{'-'*60}")
+    print(f"[Model Response]")
+    print(f"{'-'*60}")
+    print(text)
+    print(f"{'='*60}\n")
+    raw_items = _parse_content_response(text)
 
+    # 构建 grid_index → slot 映射
+    slot_map = {s.grid_index: s for s in slots}
 
-def _make_nth_label(label: str, n: int, nth_slot: SlotInfo,
-                     image_path: str, app: str, rng: random.Random) -> TrainingSample:
-    zh = _label_zh(label, rng)
-    num_str = _num(n, rng)
-    templates = [
-        f"发送第{num_str}个{zh}的图片",
-        f"选择第{num_str}张{zh}照片",
-        f"第{num_str}个{zh}那张图发给我",
-    ]
-    return TrainingSample(
-        image_path=image_path,
-        app=app,
-        instruction=rng.choice(templates),
-        instruction_type="content",
-        click_targets=[nth_slot.click_target],
-        click_boxes=[nth_slot.click_box],
-        selected_grid_indices=[nth_slot.grid_index],
-    )
+    samples = []
+    for item in raw_items:
+        instruction = item.get("instruction", "").strip()
+        indices = item.get("selected_indices", [])
+        if not instruction or not indices:
+            continue
 
+        # 过滤无效索引
+        valid_indices = [i for i in indices if i in slot_map]
+        if not valid_indices:
+            continue
 
-def _make_multi_label(labels: list[str], matching_slots: list[SlotInfo],
-                       image_path: str, app: str, rng: random.Random) -> TrainingSample:
-    zh_parts = [_label_zh(l, rng) for l in labels]
-    zh_str = "和".join(zh_parts)
-    templates = [
-        f"发送{zh_str}的图片",
-        f"选择{zh_str}照片",
-        f"把{zh_str}的图片都发给我",
-    ]
-    return TrainingSample(
-        image_path=image_path,
-        app=app,
-        instruction=rng.choice(templates),
-        instruction_type="content",
-        click_targets=[s.click_target for s in matching_slots],
-        click_boxes=[s.click_box for s in matching_slots],
-        selected_grid_indices=[s.grid_index for s in matching_slots],
-    )
+        matched_slots = [slot_map[i] for i in valid_indices]
+        samples.append(TrainingSample(
+            image_path=image_path,
+            app=app,
+            instruction=instruction,
+            instruction_type="content",
+            click_targets=[s.click_target for s in matched_slots],
+            click_boxes=[s.click_box for s in matched_slots],
+            selected_grid_indices=valid_indices,
+        ))
+
+    return samples[:n]
 
 
 # ── 主生成函数 ────────────────────────────────────────────────────
@@ -266,6 +330,7 @@ def generate_samples(
     config: AppConfig,
     n_sequential: int = 3,
     n_content: int = 3,
+    model: str = "gemma4:e4b",
     rng: Optional[random.Random] = None,
 ) -> list[TrainingSample]:
     """
@@ -273,6 +338,7 @@ def generate_samples(
 
     n_sequential: 生成的顺序类指令数（每张图随机抽取）
     n_content:    生成的内容类指令数
+    model:        用于生成内容类指令的 Ollama 模型名称
     """
     rng = rng or random.Random()
     samples: list[TrainingSample] = []
@@ -308,47 +374,19 @@ def generate_samples(
     rng.shuffle(sequential_candidates)
     samples.extend(sequential_candidates[:n_sequential])
 
-    # ── 内容类 ───────────────────────────────────────────────────
-    # 统计可见 slots 中各 label 的 slots（按 grid_index 排序）
-    label_slots: dict[str, list[SlotInfo]] = {}
-    for slot in sorted(slots, key=lambda s: s.grid_index):
-        for label in slot.photo.labels:
-            label_slots.setdefault(label, []).append(slot)
-
-    content_candidates: list[TrainingSample] = []
-
-    # 单 label：全部选
-    for label, matching in label_slots.items():
-        content_candidates.append(
-            _make_all_label(label, matching, image_path, config.name, rng)
-        )
-
-    # 单 label 第 N 个
-    for label, matching in label_slots.items():
-        if len(matching) >= 2:
-            for idx, slot in enumerate(matching, start=1):
-                content_candidates.append(
-                    _make_nth_label(label, idx, slot, image_path, config.name, rng)
-                )
-
-    # 多 label 组合（随机选2个 label）
-    all_labels = list(label_slots.keys())
-    if len(all_labels) >= 2:
-        for _ in range(min(4, len(all_labels))):
-            picked_labels = rng.sample(all_labels, 2)
-            combined_slots = []
-            seen_ids = set()
-            for lbl in picked_labels:
-                for s in label_slots[lbl]:
-                    if s.photo.id not in seen_ids:
-                        combined_slots.append(s)
-                        seen_ids.add(s.photo.id)
-            if combined_slots:
-                content_candidates.append(
-                    _make_multi_label(picked_labels, combined_slots, image_path, config.name, rng)
-                )
-
-    rng.shuffle(content_candidates)
-    samples.extend(content_candidates[:n_content])
+    # ── 内容类（模型驱动） ───────────────────────────────────────
+    if n_content > 0:
+        try:
+            content_samples = generate_content_samples_via_model(
+                slots=slots,
+                image_path=image_path,
+                app=config.name,
+                n=n_content,
+                model=model,
+            )
+            samples.extend(content_samples)
+        except Exception as e:
+            import sys
+            print(f"警告：内容指令生成失败：{e}", file=sys.stderr)
 
     return samples

@@ -24,7 +24,7 @@ python create_test_photos.py --n 10  # 10 per category
 **Label real photos** (requires Ollama + Gemma 3 model):
 ```bash
 # 前置准备：
-# brew install ollama && ollama serve && ollama pull gemma3:4b
+# brew install ollama && ollama serve && ollama pull gemma4:e4b
 
 python label_photos.py
 python label_photos.py --append              # add-only mode for new photos

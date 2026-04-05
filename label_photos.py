@@ -11,7 +11,7 @@ label_photos.py — 一次性脚本：用本地 Gemma 3 模型对源图自动打
     ollama serve                 # 后台运行，或用系统服务
 
     # 3. 拉取 Gemma 3 多模态模型（约 3 GB）
-    ollama pull gemma3:4b
+    ollama pull gemma4:e4b
 
     # 4. 安装 Python 客户端
     pip install ollama
@@ -20,7 +20,7 @@ label_photos.py — 一次性脚本：用本地 Gemma 3 模型对源图自动打
     python label_photos.py
     python label_photos.py --source source_photos/images --output source_photos/metadata.json
     python label_photos.py --append          # 跳过已有 id，只处理新图片
-    python label_photos.py --model gemma3:4b # 指定模型（默认 gemma3:4b）
+    python label_photos.py --model gemma4:e4b # 指定模型（默认 gemma4:e4b）
 """
 
 import base64
@@ -124,8 +124,8 @@ def random_timestamp(rng: random.Random) -> str:
               help="追加模式：跳过已有 id，只处理新图片")
 @click.option("--dry-run", is_flag=True,
               help="只扫描图片，不调用模型（用于测试目录结构）")
-@click.option("--model", default="gemma3:4b", show_default=True,
-              help="Ollama 模型名称，需支持视觉。例：gemma3:4b, gemma3:12b, llava:7b")
+@click.option("--model", default="gemma4:e4b", show_default=True,
+              help="Ollama 模型名称，需支持视觉。例：gemma4:e4b, gemma3:12b, llava:7b")
 @click.option("--workers", default=4, show_default=True,
               help="并发线程数（根据 GPU 显存和 Ollama 配置调整）")
 def main(source, output, append, dry_run, model, workers):

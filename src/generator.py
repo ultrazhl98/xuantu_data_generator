@@ -31,6 +31,7 @@ def generate(
     show_progress: bool = True,
     root_dir: Optional[str] = None,
     video_ratio: float = 0.0,
+    model: str = "gemma4:e4b",
 ) -> list[TrainingSample]:
     """
     批量生成训练数据。
@@ -116,6 +117,7 @@ def generate(
             config=config,
             n_sequential=n_sequential,
             n_content=n_content,
+            model=model,
             rng=rng,
         )
         all_samples.extend(samples)
