@@ -26,6 +26,21 @@ from .content_instruction import generate_content_samples_via_model
 from .instruction_types import TrainingSample
 
 
+def _pick_photo_count(
+    max_photos: int, cols: int, partial_ratio: float, rng: random.Random
+) -> int:
+    """以 partial_ratio 的概率返回少于 max_photos 的数量，模拟非满格相册。"""
+    if partial_ratio <= 0 or rng.random() >= partial_ratio:
+        return max_photos
+    # 双峰分布：60% 少量照片（1~2行），40% 接近满格
+    if rng.random() < 0.6:
+        n = rng.randint(1, min(2 * cols, max_photos))
+    else:
+        min_n = max(1, max_photos - cols * 2)
+        n = rng.randint(min_n, max_photos - 1)
+    return max(1, n)
+
+
 def generate(
     metadata_path: str,
     output_dir: str,
@@ -41,6 +56,7 @@ def generate(
     video_ratio: float = 0.0,
     model: str = "gemma4:e4b",
     max_content_workers: int = 4,
+    partial_ratio: float = 0.1,
 ) -> list[TrainingSample]:
     """
     批量生成训练数据。
@@ -89,7 +105,8 @@ def generate(
 
     for i in iterator:
         config = configs[i % len(configs)]
-        n_photos = photos_per_screen or config.max_photos
+        base_n = photos_per_screen or config.max_photos
+        n_photos = _pick_photo_count(base_n, config.cols, partial_ratio, rng)
 
         # 采样图片（保证 ensure_labels 中的类别各至少出现一次）
         photos = library.sample(

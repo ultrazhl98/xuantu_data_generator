@@ -40,7 +40,7 @@ python generate.py --count 100 --ensure-labels cat,car     # guarantee these lab
 python generate.py --n-sequential 3 --n-content 3          # instruction counts per image
 ```
 
-Key CLI flags: `--count`, `--apps` (comma-sep or "all"), `--seed`, `--debug`, `--video-ratio` (0=no video), `--ensure-labels`, `--n-sequential`, `--n-content`.
+Key CLI flags: `--count`, `--apps` (comma-sep or "all"), `--seed`, `--debug`, `--video-ratio` (0=no video), `--ensure-labels`, `--n-sequential`, `--n-content`, `--partial-ratio` (0~1, default 0.1, proportion of images with partially-filled grids).
 
 ## Architecture
 
