@@ -34,13 +34,13 @@ python label_photos.py --model gemma3:12b    # use larger model
 **Generate training data**:
 ```bash
 python generate.py --count 100 --apps all
-python generate.py --count 10 --seed 42 --debug            # debug mode draws bbox overlays
+python generate.py --count 10 --seed 42 --visualize        # 生成带点击位置可视化标注的图片
 python generate.py --count 500 --apps 相册,微信 --video-ratio 0.3
 python generate.py --count 100 --ensure-labels cat,car     # guarantee these labels appear
 python generate.py --n-sequential 3 --n-content 3          # instruction counts per image
 ```
 
-Key CLI flags: `--count`, `--apps` (comma-sep or "all"), `--seed`, `--debug`, `--video-ratio` (0=no video), `--ensure-labels`, `--n-sequential`, `--n-content`, `--partial-ratio` (0~1, default 0.1, proportion of images with partially-filled grids).
+Key CLI flags: `--count`, `--apps` (comma-sep or "all"), `--seed`, `--visualize`, `--video-ratio` (0=no video), `--ensure-labels`, `--n-sequential`, `--n-content`, `--partial-ratio` (0~1, default 0.1, proportion of images with partially-filled grids).
 
 ## Architecture
 

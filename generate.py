@@ -5,7 +5,7 @@ generate.py — CLI 入口
 用法：
     python generate.py --count 100 --apps 相册,微信
     python generate.py --count 500 --apps all --ensure-labels cat,car
-    python generate.py --count 10 --seed 42 --debug
+    python generate.py --count 10 --seed 42 --visualize
 """
 
 import sys
@@ -43,11 +43,9 @@ from src.app_config import APP_PRESETS
               help="内容指令并发线程数（根据 Ollama 服务能力调整）")
 @click.option("--partial-ratio", default=0.1, show_default=True,
               help="部分填充网格的比例：0.0=全部填满，0~1=该比例的图随机少填")
-@click.option("--debug", is_flag=True,
-              help="生成后在图上绘制 bbox 和 click_target 红点（用于调试）")
 @click.option("--visualize", is_flag=True,
               help="为每张图额外保存一张带点击位置可视化标注的图片到 output/visualize/")
-def main(count, apps, ensure_labels, metadata, output, n_sequential, n_content, seed, video_ratio, model, content_workers, partial_ratio, debug, visualize):
+def main(count, apps, ensure_labels, metadata, output, n_sequential, n_content, seed, video_ratio, model, content_workers, partial_ratio, visualize):
     # 解析 apps
     if apps == "all":
         app_list = list(APP_PRESETS.keys())
@@ -73,49 +71,8 @@ def main(count, apps, ensure_labels, metadata, output, n_sequential, n_content, 
         partial_ratio=partial_ratio,
     )
 
-    if debug:
-        _draw_debug_overlay(output, samples)
-
     if visualize:
         _draw_visualize(output, samples)
-
-
-def _draw_debug_overlay(output_dir: str, samples):
-    """在图上叠加 bbox 框和 click_target 红点，保存到 output/debug/"""
-    from PIL import Image, ImageDraw
-    import json
-    from collections import defaultdict
-
-    out = Path(output_dir)
-    debug_dir = out / "debug"
-    debug_dir.mkdir(exist_ok=True)
-
-    # 按图片分组
-    by_image: dict[str, list] = defaultdict(list)
-    for s in samples:
-        by_image[s.image_path].append(s)
-
-    for img_rel, img_samples in list(by_image.items())[:10]:  # 最多调试10张
-        img_abs = Path(output_dir).parent / img_rel if not Path(img_rel).is_absolute() else Path(img_rel)
-        if not img_abs.exists():
-            # 尝试相对于当前目录
-            img_abs = Path(img_rel)
-        if not img_abs.exists():
-            continue
-
-        img = Image.open(img_abs).convert("RGB")
-        draw = ImageDraw.Draw(img)
-
-        for s in img_samples:
-            for ct in s.click_targets:
-                cx, cy = ct
-                r = 12
-                draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(255, 0, 0))
-
-        fname = Path(img_rel).stem + "_debug.jpg"
-        img.save(debug_dir / fname, quality=85)
-
-    print(f"调试图已保存至：{debug_dir}")
 
 
 def _draw_visualize(output_dir: str, samples):
