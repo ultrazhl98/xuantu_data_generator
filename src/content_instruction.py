@@ -39,8 +39,6 @@ def _build_content_prompt(slots: list[SlotInfo], n: int) -> str:
 
         "2. **拒绝机械化句式**：禁止反复使用'发送第X张'或'选择标签为X的图片'。尝试以下真实语气：",
         "   - 动作多样化：'帮我点一下'、'把...勾选上'、'把...都发过去'、'找找看那张...'、'打包这几张'",
-        "   - 省略与代词：'就要这张'、'还有这个'、'除了猫的那张，其他的都要'",
-
         "3. **覆盖多种逻辑**：",
         "   - 单选：'发一下那张柯基的图'",
         "   - 类别多选：'把这次去北京拍的照片都选上'（对应标签包含北京的图片），对应的图片不要超过3张，如果不符合可以不生成",
@@ -99,21 +97,12 @@ def generate_content_samples_via_model(
     import ollama
 
     prompt = _build_content_prompt(slots, n)
-    print(f"\n{'='*60}")
-    print(f"[Content Prompt] model={model}")
-    print(f"{'='*60}")
-    print(prompt)
     response = ollama.chat(
         model=model,
         messages=[{"role": "user", "content": prompt}],
         options={"temperature": 0.7},
     )
     text = response["message"]["content"]
-    print(f"\n{'-'*60}")
-    print(f"[Model Response]")
-    print(f"{'-'*60}")
-    print(text)
-    print(f"{'='*60}\n")
     raw_items = _parse_content_response(text)
 
     # 构建 grid_index → slot 映射
