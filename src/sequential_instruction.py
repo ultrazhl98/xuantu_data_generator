@@ -159,30 +159,61 @@ def generate_sequential_samples(
     if not slots:
         return []
 
-    candidates: list[TrainingSample] = []
     num_slots = len(slots)
+
+    # ── 按类型分桶生成候选 ──────────────────────────────────────
+    buckets: dict[str, list[TrainingSample]] = {
+        "single": [],
+        "row_col": [],
+        "multi": [],
+        "newest": [],
+        "last": [],
+    }
 
     # 单张定位
     for slot in slots:
-        candidates.append(_make_single_index(slot, image_path, app, rng))
+        buckets["single"].append(_make_single_index(slot, image_path, app, rng))
         if slot.row > 0 or slot.col > 0:
-            candidates.append(_make_row_col(slot, image_path, app, rng))
+            buckets["row_col"].append(_make_row_col(slot, image_path, app, rng))
 
     # 多选：随机选 2~3 张
     if num_slots >= 2:
         for _ in range(min(3, num_slots)):
             k = rng.randint(2, min(3, num_slots))
             chosen = sorted(rng.sample(slots, k), key=lambda s: s.grid_index)
-            candidates.append(_make_multi_index(chosen, image_path, app, rng))
+            buckets["multi"].append(_make_multi_index(chosen, image_path, app, rng))
 
     # 最新/最后 N 张
     for cnt in [1, 2, 3]:
         s = _make_newest_n(slots, cnt, image_path, app, rng)
         if s:
-            candidates.append(s)
+            buckets["newest"].append(s)
         s = _make_last_n(slots, cnt, image_path, app, rng)
         if s:
-            candidates.append(s)
+            buckets["last"].append(s)
 
-    rng.shuffle(candidates)
-    return candidates[:n]
+    # ── 分桶轮流抽取，保证类型均衡 ──────────────────────────────
+    # 过滤空桶，桶内打乱
+    active_keys = [k for k, v in buckets.items() if v]
+    for k in active_keys:
+        rng.shuffle(buckets[k])
+    rng.shuffle(active_keys)
+
+    results: list[TrainingSample] = []
+    bucket_idx = {k: 0 for k in active_keys}
+    key_pos = 0
+    while len(results) < n and active_keys:
+        key = active_keys[key_pos % len(active_keys)]
+        idx = bucket_idx[key]
+        if idx < len(buckets[key]):
+            results.append(buckets[key][idx])
+            bucket_idx[key] = idx + 1
+            key_pos += 1
+        else:
+            # 该桶已用完，移除
+            active_keys.remove(key)
+            if not active_keys:
+                break
+            key_pos = key_pos % len(active_keys) if active_keys else 0
+
+    return results
