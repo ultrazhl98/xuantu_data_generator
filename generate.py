@@ -33,6 +33,10 @@ from src.app_config import APP_PRESETS
               help="每张图生成的顺序类指令数")
 @click.option("--n-content", default=3, show_default=True,
               help="每张图生成的内容类指令数")
+@click.option("--n-video-sequential", default=2, show_default=True,
+              help="每张图生成的视频顺序类指令数")
+@click.option("--n-video-content", default=2, show_default=True,
+              help="每张图生成的视频内容类指令数")
 @click.option("--seed", default=None, type=int,
               help="随机种子（用于复现）")
 @click.option("--video-ratio", default=0.3, show_default=True,
@@ -45,7 +49,7 @@ from src.app_config import APP_PRESETS
               help="部分填充网格的比例：0.0=全部填满，0~1=该比例的图随机少填")
 @click.option("--visualize", is_flag=True,
               help="为每张图额外保存一张带点击位置可视化标注的图片到 output/visualize/")
-def main(count, apps, ensure_labels, metadata, output, n_sequential, n_content, seed, video_ratio, model, content_workers, partial_ratio, visualize):
+def main(count, apps, ensure_labels, metadata, output, n_sequential, n_content, n_video_sequential, n_video_content, seed, video_ratio, model, content_workers, partial_ratio, visualize):
     # 解析 apps
     if apps == "all":
         app_list = list(APP_PRESETS.keys())
@@ -66,6 +70,8 @@ def main(count, apps, ensure_labels, metadata, output, n_sequential, n_content, 
         seed=seed,
         show_progress=True,
         video_ratio=video_ratio,
+        n_video_sequential=n_video_sequential,
+        n_video_content=n_video_content,
         model=model,
         max_content_workers=content_workers,
         partial_ratio=partial_ratio,

@@ -22,6 +22,8 @@ from .app_config import AppConfig
 from .instruction_types import TrainingSample
 from .sequential_instruction import generate_sequential_samples
 from .content_instruction import generate_content_samples_via_model
+from .video_sequential_instruction import generate_video_sequential_samples
+from .video_content_instruction import generate_video_content_samples_via_model
 
 
 def generate_samples(

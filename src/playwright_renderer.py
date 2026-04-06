@@ -610,6 +610,7 @@ def _grid_html(
 
     # 照片/视频格
     grid_index = 0
+    video_index = 0
     for photo_idx, photo in enumerate(photos):
         row = visual_slot // config.cols
         y2_abs = config.grid_start_y + (row + 1) * (config.cell_size + config.gap)
@@ -634,14 +635,20 @@ def _grid_html(
             '<div class="selection-circle"></div>' if config.has_selection_circle else ""
         )
 
-        # 图片格附带 data-grid-index；视频格只有 data-visual-slot
+        # 视频格计数
+        if is_video:
+            video_index += 1
+
+        # 图片格附带 data-grid-index；视频格附带 data-video-index
         grid_index_attr = f' data-grid-index="{grid_index}"' if not is_video else ""
+        video_index_attr = f' data-video-index="{video_index}"' if is_video else ""
         is_video_attr = ' data-is-video="true"' if is_video else ""
         duration_attr = f' data-duration="{duration}"' if is_video and duration else ""
 
         items.append(
             f'<div class="photo-cell"'
             f'{grid_index_attr}'
+            f'{video_index_attr}'
             f' data-visual-slot="{visual_slot}"'
             f'{is_video_attr}'
             f'{duration_attr}>'
@@ -746,6 +753,7 @@ def render_album(
                 const isVideo = cell.dataset.isVideo === 'true';
                 return {
                     grid_index:  cell.dataset.gridIndex ? +cell.dataset.gridIndex : 0,
+                    video_index: cell.dataset.videoIndex ? +cell.dataset.videoIndex : 0,
                     visual_slot: +cell.dataset.visualSlot,
                     is_video:    isVideo,
                     duration:    cell.dataset.duration || null,
@@ -787,6 +795,7 @@ def render_album(
         vs = d["visual_slot"]
         slots.append(_make_slot_info(
             grid_index=d["grid_index"],
+            video_index=d["video_index"],
             visual_slot=vs,
             row=vs // config.cols,
             col=vs % config.cols,

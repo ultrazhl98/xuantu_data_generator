@@ -23,6 +23,8 @@ from .source_library import SourceLibrary
 from .playwright_renderer import render_album
 from .sequential_instruction import generate_sequential_samples
 from .content_instruction import generate_content_samples_via_model
+from .video_sequential_instruction import generate_video_sequential_samples
+from .video_content_instruction import generate_video_content_samples_via_model
 from .instruction_types import TrainingSample
 
 
@@ -54,6 +56,8 @@ def generate(
     show_progress: bool = True,
     root_dir: Optional[str] = None,
     video_ratio: float = 0.0,
+    n_video_sequential: int = 2,
+    n_video_content: int = 2,
     model: str = "gemma4:e4b",
     max_content_workers: int = 4,
     partial_ratio: float = 0.1,
@@ -102,6 +106,7 @@ def generate(
 
     # ── Phase A：渲染 + 顺序指令（单线程） ──────────────────────
     content_tasks: list[tuple] = []  # (img_rel_path, image_slots, app_name, n_content, model)
+    video_content_tasks: list[tuple] = []  # (img_rel_path, video_slots, app_name, n_video_content, model)
 
     for i in iterator:
         config = configs[i % len(configs)]
@@ -136,46 +141,75 @@ def generate(
         img, slots = render_album(config, photos, is_video_list=is_video_list, durations=durations)
         img.save(img_abs_path, quality=92)
 
-        # 过滤出纯图片格用于指令生成（跳过视频格）
+        # 分离图片格和视频格
         image_slots = [s for s in slots if not s.is_video]
+        video_slots = [s for s in slots if s.is_video]
 
-        if not image_slots:
+        if not image_slots and not video_slots:
             continue
 
-        # 生成顺序指令（纯计算，瞬时完成）
         img_rel_path = str(Path("output/images") / img_filename)
-        seq_samples = generate_sequential_samples(
-            slots=image_slots,
-            image_path=img_rel_path,
-            app=config.name,
-            n=n_sequential,
-            rng=rng,
-        )
-        all_samples.extend(seq_samples)
+
+        # 生成图片顺序指令（纯计算，瞬时完成）
+        if image_slots:
+            seq_samples = generate_sequential_samples(
+                slots=image_slots,
+                image_path=img_rel_path,
+                app=config.name,
+                n=n_sequential,
+                rng=rng,
+            )
+            all_samples.extend(seq_samples)
+
+        # 生成视频顺序指令（纯计算，瞬时完成）
+        if video_slots and n_video_sequential > 0:
+            video_seq_samples = generate_video_sequential_samples(
+                slots=video_slots,
+                image_path=img_rel_path,
+                app=config.name,
+                n=n_video_sequential,
+                rng=rng,
+            )
+            all_samples.extend(video_seq_samples)
 
         # 收集内容指令任务参数
-        if n_content > 0:
+        if n_content > 0 and image_slots:
             content_tasks.append((img_rel_path, image_slots, config.name, n_content, model))
+        if n_video_content > 0 and video_slots:
+            video_content_tasks.append((img_rel_path, video_slots, config.name, n_video_content, model))
 
-    # ── Phase B：并发生成内容指令 ────────────────────────────────
-    if content_tasks:
-        workers = min(max_content_workers, len(content_tasks))
+    # ── Phase B：并发生成内容指令（图片 + 视频） ─────────────────
+    all_content_tasks = content_tasks + video_content_tasks
+    if all_content_tasks:
+        workers = min(max_content_workers, len(all_content_tasks))
 
         if show_progress:
-            print(f"\n开始并发生成内容指令（{len(content_tasks)} 张图，{workers} 线程）...")
+            n_img = len(content_tasks)
+            n_vid = len(video_content_tasks)
+            print(f"\n开始并发生成内容指令（图片 {n_img} 张 + 视频 {n_vid} 张，{workers} 线程）...")
 
         with ThreadPoolExecutor(max_workers=workers) as executor:
-            futures = [
-                executor.submit(
+            futures = []
+            # 图片内容指令
+            for task in content_tasks:
+                futures.append(executor.submit(
                     generate_content_samples_via_model,
                     slots=task[1],
                     image_path=task[0],
                     app=task[2],
                     n=task[3],
                     model=task[4],
-                )
-                for task in content_tasks
-            ]
+                ))
+            # 视频内容指令
+            for task in video_content_tasks:
+                futures.append(executor.submit(
+                    generate_video_content_samples_via_model,
+                    slots=task[1],
+                    image_path=task[0],
+                    app=task[2],
+                    n=task[3],
+                    model=task[4],
+                ))
             # 按提交顺序收集结果，保证 JSONL 输出可复现
             for future in futures:
                 try:

@@ -15,7 +15,7 @@ class TrainingSample:
     image_path: str
     app: str
     instruction: str
-    instruction_type: str          # "sequential" | "content"
+    instruction_type: str          # "sequential" | "content" | "video_sequential" | "video_content"
     click_targets: list[tuple]     # [(cx, cy), ...]
     click_boxes: list[tuple]       # [(x1, y1, x2, y2), ...] 每个点击目标对应的 box
     selected_grid_indices: list[int]

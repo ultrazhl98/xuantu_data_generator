@@ -27,6 +27,7 @@ from .source_library import PhotoEntry
 @dataclass
 class SlotInfo:
     grid_index: int         # 用户视角第 N 张（1-based，只计图片，跳过拍照位和视频格）；视频格为 0
+    video_index: int        # 用户视角第 N 个视频（1-based，只计视频格）；图片格为 0
     visual_slot: int        # grid 中实际位置（0-based，含拍照位）
     row: int
     col: int
@@ -257,7 +258,8 @@ def render_album(
     # ── 网格布局 ──────────────────────────────────────────────────
     slots: list[SlotInfo] = []
     visual_slot = 0
-    grid_index = 0  # 用户视角的图片计数（1-based，只对图片格计数）
+    grid_index = 0   # 用户视角的图片计数（1-based，只对图片格计数）
+    video_index = 0  # 用户视角的视频计数（1-based，只对视频格计数）
 
     def _slot_coords(slot: int) -> tuple[int, int, int, int]:
         row = slot // config.cols
@@ -310,12 +312,15 @@ def render_album(
             click_box = (x1, y1, x2, y2)
             target_type = "photo_center"
 
-        # grid_index 只对图片格计数
+        # grid_index 只对图片格计数，video_index 只对视频格计数
         if not is_video:
             grid_index += 1
+        else:
+            video_index += 1
 
         slots.append(SlotInfo(
             grid_index=grid_index if not is_video else 0,
+            video_index=video_index if is_video else 0,
             visual_slot=visual_slot,
             row=row,
             col=col,
