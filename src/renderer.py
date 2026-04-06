@@ -188,15 +188,13 @@ def _draw_selection_circle(draw: ImageDraw.Draw, x2: int, y1: int, y2: int,
 
 def _draw_video_duration(draw: ImageDraw.Draw, duration: str,
                           x1: int, y1: int, x2: int, y2: int):
-    """在图片左下角绘制视频时长（格式 ▶ mm:ss）"""
-    text = f"▶ {duration}"
+    """在图片左下角绘制视频时长（纯白色文字 + 阴影，无背景框）"""
     font = _get_font(20)
-    tw = font.getlength(text)
     tx = x1 + 6
     ty = y2 - 30
-    # 半透明黑色背景
-    draw.rectangle([tx - 2, ty - 2, tx + tw + 4, ty + 22], fill=(0, 0, 0, 120))
-    draw.text((tx, ty), text, fill=(255, 255, 255), font=font)
+    # 文字阴影增强可读性
+    draw.text((tx + 1, ty + 1), duration, fill=(0, 0, 0, 180), font=font)
+    draw.text((tx, ty), duration, fill=(255, 255, 255), font=font)
 
 
 # ── 主渲染函数 ────────────────────────────────────────────────────

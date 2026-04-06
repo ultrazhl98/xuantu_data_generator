@@ -397,19 +397,19 @@ html, body {{
     box-shadow: 0 1px 3px rgba(0,0,0,0.25);
 }}
 
-/* 视频时长标签 */
+/* 视频时长标签 — 纯白色文字 + 文字阴影，无背景框 */
 .video-duration {{
     position: absolute;
     bottom: 6px;
     left: 6px;
-    padding: 2px 7px;
-    border-radius: 3px;
-    background: rgba(0,0,0,0.52);
+    padding: 0;
+    background: none;
     color: #ffffff;
     font-size: 20px;
     line-height: 1.45;
     letter-spacing: 0.3px;
     white-space: nowrap;
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.7);
 }}
 
 /* 拍照位 */
@@ -628,7 +628,7 @@ def _grid_html(
         # 视频格：左下角时长叠加；图片格：无叠加
         overlay_html = ""
         if is_video and duration:
-            overlay_html = f'<div class="video-duration">&#9654; {duration}</div>'
+            overlay_html = f'<div class="video-duration">{duration}</div>'
 
         circle_html = (
             '<div class="selection-circle"></div>' if config.has_selection_circle else ""
