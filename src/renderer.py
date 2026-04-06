@@ -189,8 +189,8 @@ def _draw_selection_circle(draw: ImageDraw.Draw, x2: int, y1: int, y2: int,
 def _draw_video_duration(draw: ImageDraw.Draw, duration: str,
                           x1: int, y1: int, x2: int, y2: int):
     """在图片左下角绘制视频时长（纯白色文字 + 阴影，无背景框）"""
-    font = _get_font(20)
-    tx = x1 + 6
+    font = _get_font(24)
+    tx = x1 + 10
     ty = y2 - 30
     # 文字阴影增强可读性
     draw.text((tx + 1, ty + 1), duration, fill=(0, 0, 0, 180), font=font)
