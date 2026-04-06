@@ -26,7 +26,8 @@ def _build_content_prompt(slots: list[SlotInfo], n: int) -> str:
     # 2. 注入图片信息，并提示模型关注标签重复情况
     for slot in slots:
         labels_str = "、".join(slot.photo.labels) if slot.photo.labels else "未知"
-        lines.append(f"图片 {slot.grid_index}：核心标签 [{labels_str}]")
+        desc = slot.photo.description or ""
+        lines.append(f"图片 {slot.grid_index}：核心标签 [{labels_str}]，描述：{desc}")
 
     # 3. 核心生成逻辑与多样性约束
     lines.extend([
@@ -52,9 +53,12 @@ def _build_content_prompt(slots: list[SlotInfo], n: int) -> str:
         "- 严禁每条指令都以相同的动词开头。",
         "- 严禁生成无法从给定图片列表中找到对应目标的指令。",
 
-        "\n### 输出格式",
-        "必须严格返回 JSON 数组格式，禁止任何解释性文字：",
-        '[{"instruction": "指令文本", "selected_indices": [编号, 编号]}]'
+        "\n### 输出格式",       
+        "1. 必须返回 JSON 数组，每条数据包含 'instruction' 和 'selected_indices'。",
+        "2. **selected_indices**：数组长度取决于你的指令内容。单选时只填一个编号 [5]；多选时按顺序填入所有匹配的编号 [1, 3, 7]。",
+        "3. 确保指令描述的内容与 selected_indices 对应的图片标签完全吻合，不要产生幻觉。",
+       
+        '[{"instruction": "指令文本", "selected_indices": 对应的标号列表}]'
     ])
 
     return "\n".join(lines)
