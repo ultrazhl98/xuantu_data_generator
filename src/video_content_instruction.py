@@ -7,7 +7,7 @@ video_content_instruction.py — 基于内容的视频指令生成（调用 LLM 
 from __future__ import annotations
 
 from .renderer import SlotInfo
-from .instruction_types import TrainingSample
+from .instruction_types import TrainingSample, cell_from_slot
 from .content_instruction import _parse_content_response
 
 
@@ -102,6 +102,7 @@ def generate_video_content_samples_via_model(
             click_targets=[s.click_target for s in matched_slots],
             click_boxes=[s.click_box for s in matched_slots],
             selected_grid_indices=valid_indices,
+            selected_cells=[cell_from_slot(s) for s in matched_slots],
         ))
 
     return samples[:n]

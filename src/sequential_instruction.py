@@ -10,7 +10,7 @@ import random
 from typing import Optional
 
 from .renderer import SlotInfo
-from .instruction_types import TrainingSample, _cn, _num
+from .instruction_types import TrainingSample, _cn, _num, cell_from_slot
 
 
 # ── 单张定位 ─────────────────────────────────────────────────────
@@ -32,6 +32,7 @@ def _make_single_index(slot: SlotInfo, image_path: str, app: str,
         click_targets=[slot.click_target],
         click_boxes=[slot.click_box],
         selected_grid_indices=[slot.grid_index],
+        selected_cells=[cell_from_slot(slot)],
     )
 
 
@@ -54,6 +55,7 @@ def _make_row_col(slot: SlotInfo, image_path: str, app: str,
         click_targets=[slot.click_target],
         click_boxes=[slot.click_box],
         selected_grid_indices=[slot.grid_index],
+        selected_cells=[cell_from_slot(slot)],
     )
 
 
@@ -84,6 +86,7 @@ def _make_multi_index(slots_subset: list[SlotInfo], image_path: str, app: str,
         click_targets=[s.click_target for s in slots_subset],
         click_boxes=[s.click_box for s in slots_subset],
         selected_grid_indices=indices,
+        selected_cells=[cell_from_slot(s) for s in slots_subset],
     )
 
 
@@ -112,6 +115,7 @@ def _make_newest_n(slots: list[SlotInfo], n: int, image_path: str, app: str,
         click_targets=[s.click_target for s in chosen],
         click_boxes=[s.click_box for s in chosen],
         selected_grid_indices=[s.grid_index for s in chosen],
+        selected_cells=[cell_from_slot(s) for s in chosen],
     )
 
 
@@ -138,6 +142,7 @@ def _make_last_n(slots: list[SlotInfo], n: int, image_path: str, app: str,
         click_targets=[s.click_target for s in chosen],
         click_boxes=[s.click_box for s in chosen],
         selected_grid_indices=[s.grid_index for s in chosen],
+        selected_cells=[cell_from_slot(s) for s in chosen],
     )
 
 

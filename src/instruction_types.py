@@ -5,7 +5,7 @@ instruction_types.py — 指令生成共享类型与工具函数
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 # ── 数据结构 ──────────────────────────────────────────────────────
@@ -19,6 +19,19 @@ class TrainingSample:
     click_targets: list[tuple]     # [(cx, cy), ...]
     click_boxes: list[tuple]       # [(x1, y1, x2, y2), ...] 每个点击目标对应的 box
     selected_grid_indices: list[int]
+    selected_cells: list[dict] = field(default_factory=list)
+    # 每个元素与 click_targets 对应：{"row": r, "col": c, "type": "image"|"video", "grid_index": n}
+
+
+def cell_from_slot(slot) -> dict:
+    """从 SlotInfo 构造 selected_cells 字典。type 为 image/video，grid_index 为用户可见编号。"""
+    is_video = getattr(slot, "is_video", False)
+    return {
+        "row": slot.row,
+        "col": slot.col,
+        "type": "video" if is_video else "image",
+        "grid_index": slot.video_index if is_video else slot.grid_index,
+    }
 
 
 # ── 中文数字 ─────────────────────────────────────────────────────

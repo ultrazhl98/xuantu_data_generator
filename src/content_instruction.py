@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 
 from .renderer import SlotInfo
-from .instruction_types import TrainingSample
+from .instruction_types import TrainingSample, cell_from_slot
 
 
 def _build_content_prompt(slots: list[SlotInfo], n: int) -> str:
@@ -129,6 +129,7 @@ def generate_content_samples_via_model(
             click_targets=[s.click_target for s in matched_slots],
             click_boxes=[s.click_box for s in matched_slots],
             selected_grid_indices=valid_indices,
+            selected_cells=[cell_from_slot(s) for s in matched_slots],
         ))
 
     return samples[:n]

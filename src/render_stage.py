@@ -1,0 +1,137 @@
+"""
+render_stage.py — 渲染阶段：采样 + 渲染 + 写 sidecar
+
+输出：
+  output/images/{i:05d}.jpg
+  output/grids/{i:05d}.jsonl      每行一个 photo/video 格子
+  output/grids/{i:05d}.meta.json  {app, image_path}
+"""
+
+from __future__ import annotations
+
+import dataclasses
+import random
+from pathlib import Path
+from typing import Optional
+
+from .app_config import AppConfig, APP_PRESETS
+from .source_library import SourceLibrary
+from .playwright_renderer import render_album
+from .grid_sidecar import write_grid_sidecar
+
+
+def _pick_photo_count(
+    max_photos: int, cols: int, partial_ratio: float, rng: random.Random
+) -> int:
+    """以 partial_ratio 的概率返回少于 max_photos 的数量，模拟非满格相册。"""
+    if partial_ratio <= 0 or rng.random() >= partial_ratio:
+        return max_photos
+    if rng.random() < 0.6:
+        n = rng.randint(1, min(2 * cols, max_photos))
+    else:
+        min_n = max(1, max_photos - cols * 2)
+        n = rng.randint(min_n, max_photos - 1)
+    return max(1, n)
+
+
+def render_batch(
+    metadata_path: str,
+    output_dir: str,
+    count: int = 100,
+    apps: Optional[list[str]] = None,
+    ensure_labels: Optional[list[str]] = None,
+    photos_per_screen: Optional[int] = None,
+    seed: Optional[int] = None,
+    show_progress: bool = True,
+    video_ratio: float = 0.0,
+    partial_ratio: float = 0.1,
+    camera_ratio: float = 0.3,
+) -> list[dict]:
+    """
+    批量渲染图片 + 写 sidecar，不生成指令。
+
+    返回每张图的概要：[{stem, image_path, app, n_image, n_video}, ...]
+    """
+    rng = random.Random(seed)
+    library = SourceLibrary(metadata_path)
+    if len(library) == 0:
+        raise ValueError(f"metadata.json 中没有图片条目，请先运行 label_photos.py")
+
+    selected_apps = apps or list(APP_PRESETS.keys())
+    configs: list[AppConfig] = [APP_PRESETS[a] for a in selected_apps if a in APP_PRESETS]
+    if not configs:
+        raise ValueError(f"未找到有效的 App 配置，可用：{list(APP_PRESETS.keys())}")
+
+    out_path = Path(output_dir)
+    img_dir = out_path / "images"
+    grid_dir = out_path / "grids"
+    img_dir.mkdir(parents=True, exist_ok=True)
+    grid_dir.mkdir(parents=True, exist_ok=True)
+
+    if show_progress:
+        try:
+            from tqdm import tqdm
+            iterator = tqdm(range(count), desc="渲染图片 + 写 sidecar")
+        except ImportError:
+            iterator = range(count)
+    else:
+        iterator = range(count)
+
+    summaries: list[dict] = []
+
+    for i in iterator:
+        config = configs[i % len(configs)]
+        config = dataclasses.replace(config, has_camera_slot=rng.random() < camera_ratio)
+        base_n = photos_per_screen or config.max_photos
+        n_photos = _pick_photo_count(base_n, config.cols, partial_ratio, rng)
+
+        photos = library.sample(
+            n=n_photos,
+            required_labels=ensure_labels,
+            shuffle=True,
+            rng=rng,
+        )
+        if not photos:
+            continue
+
+        _ratio = video_ratio if video_ratio > 0 else 0.0
+        if _ratio > 0:
+            is_video_list = [rng.random() < _ratio for _ in range(len(photos))]
+            durations = [
+                f"{rng.randint(0, 5):02d}:{rng.randint(0, 59):02d}" if iv else None
+                for iv in is_video_list
+            ]
+        else:
+            is_video_list = [False] * len(photos)
+            durations = [None] * len(photos)
+
+        stem = f"{i:05d}"
+        img_filename = f"{stem}.jpg"
+        img_abs_path = str(img_dir / img_filename)
+        img, slots = render_album(config, photos, is_video_list=is_video_list, durations=durations)
+        img.save(img_abs_path, quality=92)
+
+        img_rel_path = str(Path("output/images") / img_filename)
+
+        write_grid_sidecar(
+            grid_dir=grid_dir,
+            stem=stem,
+            app=config.name,
+            image_path=img_rel_path,
+            slots=slots,
+        )
+
+        summaries.append({
+            "stem": stem,
+            "image_path": img_rel_path,
+            "app": config.name,
+            "n_image": sum(1 for s in slots if not s.is_video),
+            "n_video": sum(1 for s in slots if s.is_video),
+        })
+
+    if show_progress:
+        print(f"\n渲染完成：{len(summaries)} 张图")
+        print(f"  图片：{img_dir}")
+        print(f"  网格 sidecar：{grid_dir}")
+
+    return summaries
