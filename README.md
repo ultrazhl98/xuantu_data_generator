@@ -117,6 +117,7 @@ python generate_instructions.py --n-sequential 3 --n-content 3 \
 | `--content-workers` | 内容指令并发线程数 | 4 |
 | `--seed` | 随机种子 | 无 |
 | `--samples-filename` | 输出 jsonl 文件名 | training_samples.jsonl |
+| `--visualize` | 为每条指令额外画一张带点击位置标注的可视化图 | 关闭 |
 
 **优势**：同一份 `grids/` 下可反复重跑指令阶段（换模型、换 seed、换数量），无需重新渲染：
 
@@ -166,6 +167,30 @@ python label_photos.py --append
 
 # 使用指定模型
 python label_photos.py --model gemma3:12b
+```
+
+---
+
+## 可视化查看结果
+
+每条指令可以独立画一张带绿色点击框 + 红色点击点 + 顶部指令文字的图，写到 `output/visualize/{stem}_{idx:02d}_vis.jpg`。
+
+```bash
+# 方式 1：生成指令时同时出可视化
+python generate_instructions.py --visualize
+
+# 方式 2：一体化入口
+python generate.py --count 10 --visualize
+
+# 方式 3：对已有 jsonl 事后可视化（不重新生成）
+python visualize.py --output output
+python visualize.py --jsonl output/run2.jsonl
+```
+
+然后直接打开目录查看：
+
+```bash
+open output/visualize/
 ```
 
 ---

@@ -16,6 +16,7 @@ import click
 sys.path.insert(0, str(Path(__file__).parent))
 from src.generator import generate
 from src.app_config import APP_PRESETS
+from src.visualize import draw_visualize
 
 
 @click.command()
@@ -81,66 +82,7 @@ def main(count, apps, ensure_labels, metadata, output, n_sequential, n_content, 
     )
 
     if visualize:
-        _draw_visualize(output, samples)
-
-
-def _draw_visualize(output_dir: str, samples):
-    """为每条指令单独生成一张带点击位置可视化标注的图片，保存到 output/visualize/"""
-    from PIL import Image, ImageDraw, ImageFont
-
-    out = Path(output_dir)
-    vis_dir = out / "visualize"
-    vis_dir.mkdir(exist_ok=True)
-
-    # 记录每张原图已出现的指令计数，用于生成不重复的文件名
-    image_counter: dict[str, int] = {}
-
-    for s in samples:
-        img_rel = s.image_path
-        img_abs = Path(output_dir).parent / img_rel if not Path(img_rel).is_absolute() else Path(img_rel)
-        if not img_abs.exists():
-            img_abs = Path(img_rel)
-        if not img_abs.exists():
-            continue
-
-        img = Image.open(img_abs).convert("RGB")
-        draw = ImageDraw.Draw(img, "RGBA")
-
-        # 绘制点击区域半透明框
-        for box in s.click_boxes:
-            x1, y1, x2, y2 = box
-            draw.rectangle([x1, y1, x2, y2], outline=(0, 200, 0, 180), width=3)
-            draw.rectangle([x1, y1, x2, y2], fill=(0, 200, 0, 40))
-
-        # 绘制点击目标红点
-        for ct in s.click_targets:
-            cx, cy = ct
-            r = 14
-            draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(255, 0, 0, 200))
-            # 白色内圈
-            r2 = 5
-            draw.ellipse([cx - r2, cy - r2, cx + r2, cy + r2], fill=(255, 255, 255, 230))
-
-        # 在图片顶部绘制指令文本
-        try:
-            font = ImageFont.truetype("/System/Library/Fonts/PingFang.ttc", 36)
-        except Exception:
-            font = ImageFont.load_default()
-        text = s.instruction
-        # 半透明黑色背景条
-        text_bbox = draw.textbbox((0, 0), text, font=font)
-        text_h = text_bbox[3] - text_bbox[1] + 20
-        draw.rectangle([0, 0, img.width, text_h + 10], fill=(0, 0, 0, 180))
-        draw.text((10, 5), text, fill=(255, 255, 255, 255), font=font)
-
-        # 生成文件名：原图名_序号_vis.jpg
-        stem = Path(img_rel).stem
-        idx = image_counter.get(stem, 0)
-        image_counter[stem] = idx + 1
-        fname = f"{stem}_{idx:02d}_vis.jpg"
-        img.save(vis_dir / fname, quality=90)
-
-    print(f"可视化图已保存至：{vis_dir}（共 {len(samples)} 张，每条指令独立一张）")
+        draw_visualize(output, samples)
 
 
 if __name__ == "__main__":

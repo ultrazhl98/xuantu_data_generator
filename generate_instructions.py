@@ -17,6 +17,7 @@ import click
 
 sys.path.insert(0, str(Path(__file__).parent))
 from src.instruction_stage import run_instruction_stage
+from src.visualize import draw_visualize
 
 
 @click.command()
@@ -37,9 +38,11 @@ from src.instruction_stage import run_instruction_stage
 @click.option("--seed", default=None, type=int, help="随机种子（用于复现）")
 @click.option("--samples-filename", default="training_samples.jsonl", show_default=True,
               help="输出 jsonl 文件名（相对 --output 目录）")
+@click.option("--visualize", is_flag=True,
+              help="为每条指令额外保存一张带点击位置标注的图片到 output/visualize/")
 def main(output, n_sequential, n_content, n_video_sequential, n_video_content,
-         model, content_workers, seed, samples_filename):
-    run_instruction_stage(
+         model, content_workers, seed, samples_filename, visualize):
+    samples = run_instruction_stage(
         output_dir=output,
         n_sequential=n_sequential,
         n_content=n_content,
@@ -51,6 +54,9 @@ def main(output, n_sequential, n_content, n_video_sequential, n_video_content,
         show_progress=True,
         samples_filename=samples_filename,
     )
+
+    if visualize:
+        draw_visualize(output, samples)
 
 
 if __name__ == "__main__":
