@@ -97,7 +97,7 @@ WECHAT = AppConfig(
 WEIBO = AppConfig(
     name="微博",
     grid_start_y=310,
-    has_camera_slot=True,
+    has_camera_slot=False,
     header_style="with_search",
     bottom_nav_height=95,
 )

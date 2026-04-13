@@ -41,6 +41,8 @@ from src.app_config import APP_PRESETS
               help="随机种子（用于复现）")
 @click.option("--video-ratio", default=0.3, show_default=True,
               help="视频格比例：0.0=纯图模式，0~1 随机混合视频")
+@click.option("--camera-ratio", default=0.3, show_default=True,
+              help="拍照格出现概率：0.0=不出现，0~1 随机出现（所有 App 均生效）")
 @click.option("--model", default="gemma4:e4b", show_default=True,
               help="Ollama 模型名称，用于生成内容类指令。需支持文本对话")
 @click.option("--content-workers", default=4, show_default=True,
@@ -49,7 +51,7 @@ from src.app_config import APP_PRESETS
               help="部分填充网格的比例：0.0=全部填满，0~1=该比例的图随机少填")
 @click.option("--visualize", is_flag=True,
               help="为每张图额外保存一张带点击位置可视化标注的图片到 output/visualize/")
-def main(count, apps, ensure_labels, metadata, output, n_sequential, n_content, n_video_sequential, n_video_content, seed, video_ratio, model, content_workers, partial_ratio, visualize):
+def main(count, apps, ensure_labels, metadata, output, n_sequential, n_content, n_video_sequential, n_video_content, seed, video_ratio, camera_ratio, model, content_workers, partial_ratio, visualize):
     # 解析 apps
     if apps == "all":
         app_list = list(APP_PRESETS.keys())
@@ -70,6 +72,7 @@ def main(count, apps, ensure_labels, metadata, output, n_sequential, n_content, 
         seed=seed,
         show_progress=True,
         video_ratio=video_ratio,
+        camera_ratio=camera_ratio,
         n_video_sequential=n_video_sequential,
         n_video_content=n_video_content,
         model=model,
