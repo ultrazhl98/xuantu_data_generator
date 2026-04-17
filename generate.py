@@ -50,9 +50,11 @@ from src.visualize import draw_visualize
               help="内容指令并发线程数（根据 Ollama 服务能力调整）")
 @click.option("--partial-ratio", default=0.1, show_default=True,
               help="部分填充网格的比例：0.0=全部填满，0~1=该比例的图随机少填")
+@click.option("--circle-ratio", default=0.8, show_default=True,
+              help="选择圆圈出现的比例：1.0=每张图都画(默认)，0.0=全部不画，0~1=按比例随机；不画时点击目标回退到格子中心")
 @click.option("--visualize", is_flag=True,
               help="为每张图额外保存一张带点击位置可视化标注的图片到 output/visualize/")
-def main(count, apps, ensure_labels, metadata, output, n_sequential, n_content, n_video_sequential, n_video_content, seed, video_ratio, camera_ratio, model, content_workers, partial_ratio, visualize):
+def main(count, apps, ensure_labels, metadata, output, n_sequential, n_content, n_video_sequential, n_video_content, seed, video_ratio, camera_ratio, model, content_workers, partial_ratio, circle_ratio, visualize):
     # 解析 apps
     if apps == "all":
         app_list = list(APP_PRESETS.keys())
@@ -79,6 +81,7 @@ def main(count, apps, ensure_labels, metadata, output, n_sequential, n_content, 
         model=model,
         max_content_workers=content_workers,
         partial_ratio=partial_ratio,
+        circle_ratio=circle_ratio,
     )
 
     if visualize:

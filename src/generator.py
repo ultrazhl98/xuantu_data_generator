@@ -36,6 +36,7 @@ def generate(
     max_content_workers: int = 4,
     partial_ratio: float = 0.1,
     camera_ratio: float = 0.3,
+    circle_ratio: float = 1.0,
 ) -> list[TrainingSample]:
     """渲染阶段 + 指令阶段的 orchestration（等价于先跑 render.py 再跑 generate_instructions.py）。"""
     render_batch(
@@ -50,6 +51,7 @@ def generate(
         video_ratio=video_ratio,
         partial_ratio=partial_ratio,
         camera_ratio=camera_ratio,
+        circle_ratio=circle_ratio,
     )
 
     samples = run_instruction_stage(

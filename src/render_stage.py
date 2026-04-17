@@ -46,6 +46,7 @@ def render_batch(
     video_ratio: float = 0.0,
     partial_ratio: float = 0.1,
     camera_ratio: float = 0.3,
+    circle_ratio: float = 1.0,
 ) -> list[dict]:
     """
     批量渲染图片 + 写 sidecar，不生成指令。
@@ -81,7 +82,11 @@ def render_batch(
 
     for i in iterator:
         config = configs[i % len(configs)]
-        config = dataclasses.replace(config, has_camera_slot=rng.random() < camera_ratio)
+        config = dataclasses.replace(
+            config,
+            has_camera_slot=rng.random() < camera_ratio,
+            has_selection_circle=rng.random() < circle_ratio,
+        )
         base_n = photos_per_screen or config.max_photos
         n_photos = _pick_photo_count(base_n, config.cols, partial_ratio, rng)
 
