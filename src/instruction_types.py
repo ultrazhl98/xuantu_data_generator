@@ -23,6 +23,16 @@ class TrainingSample:
     # 每个元素与 click_targets 对应：{"row": r, "col": c, "type": "image"|"video", "grid_index": n}
 
 
+def resolve_click_for_instruction(instruction: str, slots):
+    """含'播放'时点格子中心；否则沿用 slot 渲染期决定的 click_target。"""
+    if "播放" in instruction:
+        targets = [((s.bbox[0] + s.bbox[2]) // 2,
+                    (s.bbox[1] + s.bbox[3]) // 2) for s in slots]
+        boxes = [tuple(s.bbox) for s in slots]
+        return targets, boxes
+    return [s.click_target for s in slots], [s.click_box for s in slots]
+
+
 def cell_from_slot(slot) -> dict:
     """从 SlotInfo 构造 selected_cells 字典。type 为 image/video，grid_index 为用户可见编号。"""
     is_video = getattr(slot, "is_video", False)

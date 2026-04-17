@@ -11,7 +11,7 @@ from collections import defaultdict
 from typing import Optional
 
 from .renderer import SlotInfo
-from .instruction_types import TrainingSample, _cn, _num, cell_from_slot
+from .instruction_types import TrainingSample, _cn, _num, cell_from_slot, resolve_click_for_instruction
 
 
 def _parse_duration(d: str) -> int:
@@ -31,13 +31,15 @@ def _make_single_video_index(slot: SlotInfo, image_path: str, app: str,
         f"选择第{n}个视频",
         f"把第{n}个视频发给我",
     ]
+    instruction = rng.choice(templates)
+    click_targets, click_boxes = resolve_click_for_instruction(instruction, [slot])
     return TrainingSample(
         image_path=image_path,
         app=app,
-        instruction=rng.choice(templates),
+        instruction=instruction,
         instruction_type="video_sequential",
-        click_targets=[slot.click_target],
-        click_boxes=[slot.click_box],
+        click_targets=click_targets,
+        click_boxes=click_boxes,
         selected_grid_indices=[slot.video_index],
         selected_cells=[cell_from_slot(slot)],
     )
@@ -56,13 +58,15 @@ def _make_video_row_col(slot: SlotInfo, rel_col: int,
         f"选择第{abs_r}排第{rel_c}个视频",
         f"第{abs_r}行第{abs_c}列那个视频发给我",
     ]
+    instruction = rng.choice(templates)
+    click_targets, click_boxes = resolve_click_for_instruction(instruction, [slot])
     return TrainingSample(
         image_path=image_path,
         app=app,
-        instruction=rng.choice(templates),
+        instruction=instruction,
         instruction_type="video_sequential",
-        click_targets=[slot.click_target],
-        click_boxes=[slot.click_box],
+        click_targets=click_targets,
+        click_boxes=click_boxes,
         selected_grid_indices=[slot.video_index],
         selected_cells=[cell_from_slot(slot)],
     )
@@ -86,13 +90,15 @@ def _make_multi_video_index(slots_subset: list[SlotInfo], image_path: str, app: 
             f"发送第{indices_str}个视频",
             f"把第{indices_str}个视频发过来",
         ]
+    instruction = rng.choice(templates)
+    click_targets, click_boxes = resolve_click_for_instruction(instruction, slots_subset)
     return TrainingSample(
         image_path=image_path,
         app=app,
-        instruction=rng.choice(templates),
+        instruction=instruction,
         instruction_type="video_sequential",
-        click_targets=[s.click_target for s in slots_subset],
-        click_boxes=[s.click_box for s in slots_subset],
+        click_targets=click_targets,
+        click_boxes=click_boxes,
         selected_grid_indices=indices,
         selected_cells=[cell_from_slot(s) for s in slots_subset],
     )
@@ -115,13 +121,15 @@ def _make_newest_n_videos(slots: list[SlotInfo], n: int, image_path: str, app: s
     ]
     if n == 1:
         templates += ["发送最新的视频", "选择最近的一个视频"]
+    instruction = rng.choice(templates)
+    click_targets, click_boxes = resolve_click_for_instruction(instruction, chosen)
     return TrainingSample(
         image_path=image_path,
         app=app,
-        instruction=rng.choice(templates),
+        instruction=instruction,
         instruction_type="video_sequential",
-        click_targets=[s.click_target for s in chosen],
-        click_boxes=[s.click_box for s in chosen],
+        click_targets=click_targets,
+        click_boxes=click_boxes,
         selected_grid_indices=[s.video_index for s in chosen],
         selected_cells=[cell_from_slot(s) for s in chosen],
     )
@@ -142,13 +150,15 @@ def _make_last_n_videos(slots: list[SlotInfo], n: int, image_path: str, app: str
         f"选择最末{num_str}个视频",
         f"把最后{num_str}个视频发给我",
     ]
+    instruction = rng.choice(templates)
+    click_targets, click_boxes = resolve_click_for_instruction(instruction, chosen)
     return TrainingSample(
         image_path=image_path,
         app=app,
-        instruction=rng.choice(templates),
+        instruction=instruction,
         instruction_type="video_sequential",
-        click_targets=[s.click_target for s in chosen],
-        click_boxes=[s.click_box for s in chosen],
+        click_targets=click_targets,
+        click_boxes=click_boxes,
         selected_grid_indices=[s.video_index for s in chosen],
         selected_cells=[cell_from_slot(s) for s in chosen],
     )
@@ -211,13 +221,15 @@ def _make_duration_filter(slots: list[SlotInfo], image_path: str, app: str,
                 chosen = [s for s, sec in durations if sec == max_sec]
                 templates = ["播放最长的视频", "发送时间最长的视频"]
 
+    instruction = rng.choice(templates)
+    click_targets, click_boxes = resolve_click_for_instruction(instruction, chosen)
     return TrainingSample(
         image_path=image_path,
         app=app,
-        instruction=rng.choice(templates),
+        instruction=instruction,
         instruction_type="video_sequential",
-        click_targets=[s.click_target for s in chosen],
-        click_boxes=[s.click_box for s in chosen],
+        click_targets=click_targets,
+        click_boxes=click_boxes,
         selected_grid_indices=[s.video_index for s in chosen],
         selected_cells=[cell_from_slot(s) for s in chosen],
     )

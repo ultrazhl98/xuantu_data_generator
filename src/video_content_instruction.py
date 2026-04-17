@@ -7,7 +7,7 @@ video_content_instruction.py — 基于内容的视频指令生成（调用 LLM 
 from __future__ import annotations
 
 from .renderer import SlotInfo
-from .instruction_types import TrainingSample, cell_from_slot
+from .instruction_types import TrainingSample, cell_from_slot, resolve_click_for_instruction
 from .content_instruction import _parse_content_response
 
 
@@ -94,13 +94,14 @@ def generate_video_content_samples_via_model(
             continue
 
         matched_slots = [slot_map[i] for i in valid_indices]
+        click_targets, click_boxes = resolve_click_for_instruction(instruction, matched_slots)
         samples.append(TrainingSample(
             image_path=image_path,
             app=app,
             instruction=instruction,
             instruction_type="video_content",
-            click_targets=[s.click_target for s in matched_slots],
-            click_boxes=[s.click_box for s in matched_slots],
+            click_targets=click_targets,
+            click_boxes=click_boxes,
             selected_grid_indices=valid_indices,
             selected_cells=[cell_from_slot(s) for s in matched_slots],
         ))
