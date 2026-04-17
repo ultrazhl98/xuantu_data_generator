@@ -7,6 +7,7 @@ sequential_instruction.py — 基于顺序的指令生成（纯计算，无模�
 from __future__ import annotations
 
 import random
+from collections import defaultdict
 from typing import Optional
 
 from .renderer import SlotInfo
@@ -38,13 +39,14 @@ def _make_single_index(slot: SlotInfo, image_path: str, app: str,
 
 # ── 行列定位 ─────────────────────────────────────────────────────
 
-def _make_row_col(slot: SlotInfo, image_path: str, app: str,
+def _make_row_col(slot: SlotInfo, rel_row: int, rel_col: int,
+                   image_path: str, app: str,
                    rng: random.Random) -> TrainingSample:
-    r = _num(slot.row + 1, rng)
-    c = _num(slot.col + 1, rng)
+    r = _num(rel_row, rng)
+    c = _num(rel_col, rng)
     templates = [
         f"发送第{r}行第{c}列的图片",
-        f"选择第{r}排第{c}个照片",
+        f"选择第{r}排上的第{c}照片",
         f"第{r}行第{c}列那张图片发给我",
     ]
     return TrainingSample(
@@ -175,11 +177,23 @@ def generate_sequential_samples(
         "last": [],
     }
 
+    # 预计算同类型相对行列号（只在传入的 slots 中计算，避免视频/拍照位干扰）
+    rows_map: dict[int, list[SlotInfo]] = defaultdict(list)
+    for s in slots:
+        rows_map[s.row].append(s)
+    sorted_row_keys = sorted(rows_map.keys())
+    slot_rel: dict[int, tuple[int, int]] = {}  # id(slot) -> (rel_row, rel_col)
+    for ri, rk in enumerate(sorted_row_keys):
+        row_slots = sorted(rows_map[rk], key=lambda s: s.col)
+        for ci, s in enumerate(row_slots):
+            slot_rel[id(s)] = (ri + 1, ci + 1)
+
     # 单张定位
     for slot in slots:
         buckets["single"].append(_make_single_index(slot, image_path, app, rng))
-        if slot.row > 0 or slot.col > 0:
-            buckets["row_col"].append(_make_row_col(slot, image_path, app, rng))
+        rel_r, rel_c = slot_rel[id(slot)]
+        if rel_r > 1 or rel_c > 1:
+            buckets["row_col"].append(_make_row_col(slot, rel_r, rel_c, image_path, app, rng))
 
     # 多选：随机选 2~3 张
     if num_slots >= 2:
